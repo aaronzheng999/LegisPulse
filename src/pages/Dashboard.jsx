@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Bill } from "@/entities/Bill";
-import { User } from "@/entities/User";
+import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { FileText, TrendingUp, Globe } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -29,8 +28,8 @@ export default function Dashboard() {
     setIsLoading(true);
     try {
       const [billsData, userData] = await Promise.all([
-        Bill.list("-created_date"),
-        User.me().catch(() => null)
+        base44.entities.Bill.list("-created_date"),
+        base44.auth.me().catch(() => null)
       ]);
       setBills(billsData);
       setUser(userData);
@@ -93,7 +92,7 @@ export default function Dashboard() {
       : [...trackedBillIds, billId];
 
     setTrackedBillIds(newTrackedIds);
-    await User.updateMyUserData({ tracked_bill_ids: newTrackedIds });
+    await base44.auth.updateMe({ tracked_bill_ids: newTrackedIds });
   };
 
   const getNewBills = () => {
@@ -111,18 +110,17 @@ export default function Dashboard() {
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900">Georgia Legislature</h1>
-            <p className="text-slate-600 mt-1">Track and monitor legislative bills</p>
+            <h1 className="text-3xl font-bold text-slate-900">Legislative Dashboard</h1>
+            <p className="text-slate-600 mt-1 flex items-center gap-2">
+              <Globe className="w-4 h-4" />
+              Live bills from legis.ga.gov - {filters.session_year || 2026} session
+            </p>
           </div>
-          <div className="flex gap-3">
-            <Link to={createPageUrl("BillForm")}>
-              <Button className="bg-blue-600 hover:bg-blue-700">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Bill
-              </Button>
-            </Link>
-          </div>
+          <BillSyncButton onSyncComplete={loadData} />
         </div>
+
+        {/* Auto-sync Indicator */}
+        <AutoSyncIndicator lastSyncTime="Today" />
 
         {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -138,7 +136,7 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center gap-2 mt-4">
               <TrendingUp className="w-4 h-4 text-emerald-500" />
-              <span className="text-sm text-emerald-600 font-medium">Session 2024</span>
+              <span className="text-sm text-emerald-600 font-medium">Session 2026</span>
             </div>
           </div>
 
