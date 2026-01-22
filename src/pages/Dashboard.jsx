@@ -13,6 +13,8 @@ import AutoSyncIndicator from "../components/bills/AutoSyncIndicator";
 export default function Dashboard() {
   const [bills, setBills] = useState([]);
   const [filteredBills, setFilteredBills] = useState([]);
+  const [displayedBills, setDisplayedBills] = useState([]);
+  const [displayCount, setDisplayCount] = useState(10);
   const [filters, setFilters] = useState({ session_year: 2026 });
   const [isLoading, setIsLoading] = useState(true);
   const [showNewBillsModal, setShowNewBillsModal] = useState(false);
@@ -73,7 +75,24 @@ export default function Dashboard() {
 
   useEffect(() => {
     applyFilters();
-  }, [applyFilters]); // Now depend on the memoized applyFilters function
+  }, [applyFilters]);
+
+  useEffect(() => {
+    setDisplayedBills(filteredBills.slice(0, displayCount));
+  }, [filteredBills, displayCount]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 500) {
+        if (displayCount < filteredBills.length) {
+          setDisplayCount(prev => prev + 10);
+        }
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [displayCount, filteredBills.length]);
 
   const getBillCounts = () => {
     return {
@@ -83,7 +102,7 @@ export default function Dashboard() {
     };
   };
 
-  const handleToggleTracking = async (billId) => {
+  const handleToggleTracking = async (billId, billNumber) => {
     if (!user) return;
 
     const isCurrentlyTracked = trackedBillIds.includes(billId);
@@ -93,6 +112,54 @@ export default function Dashboard() {
 
     setTrackedBillIds(newTrackedIds);
     await base44.auth.updateMe({ tracked_bill_ids: newTrackedIds });
+
+    // Monitor tracked bill on Twitter
+    if (!isCurrentlyTracked) {
+      monitorBillOnTwitter(billNumber);
+    }
+  };
+
+  const monitorBillOnTwitter = async (billNumber) => {
+    try {
+      // Search for recent tweets mentioning the bill
+      await base44.integrations.Core.InvokeLLM({
+        prompt: `Search Twitter/X for recent posts from @GeorgiaHouseofReps and @Georgia_Senate that mention "${billNumber}". 
+        Look for any updates, votes, committee actions, or status changes related to this bill.
+        Return the most relevant information about recent activity.`,
+        add_context_from_internet: true,
+        response_json_schema: {
+          type: "object",
+          properties: {
+            has_updates: { type: "boolean" },
+            updates: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  content: { type: "string" },
+                  date: { type: "string" },
+                  source: { type: "string" }
+                }
+              }
+            }
+          }
+        }
+      }).then(async (response) => {
+        if (response.has_updates && response.updates?.length > 0) {
+          // Create notification for user
+          await base44.entities.Notification.create({
+            user_id: user.id,
+            notification_type: "bill_mention",
+            title: `${billNumber} mentioned on Twitter`,
+            message: response.updates[0].content,
+            related_bill_id: billNumber,
+            priority: "high"
+          });
+        }
+      });
+    } catch (error) {
+      console.error("Error monitoring bill on Twitter:", error);
+    }
   };
 
   const getNewBills = () => {
@@ -122,53 +189,6 @@ export default function Dashboard() {
         {/* Auto-sync Indicator */}
         <AutoSyncIndicator lastSyncTime="Today" />
 
-        {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-600 text-sm font-medium">Total Bills</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">{bills.length}</p>
-              </div>
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <FileText className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-            <div className="flex items-center gap-2 mt-4">
-              <TrendingUp className="w-4 h-4 text-emerald-500" />
-              <span className="text-sm text-emerald-600 font-medium">Session 2026</span>
-            </div>
-          </div>
-
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-600 text-sm font-medium">House Bills</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">
-                  {bills.filter(b => b.chamber === 'house').length}
-                </p>
-              </div>
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <FileText className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-600 text-sm font-medium">Senate Bills</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1">
-                  {bills.filter(b => b.chamber === 'senate').length}
-                </p>
-              </div>
-              <div className="p-3 bg-purple-100 rounded-lg">
-                <FileText className="w-6 h-6 text-purple-600" />
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Filters */}
         <BillFilters
           filters={filters}
@@ -185,26 +205,35 @@ export default function Dashboard() {
               <p className="mt-4 text-slate-600">Loading bills...</p>
             </div>
           ) : filteredBills.length > 0 ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-              <AnimatePresence>
-                {filteredBills.map((bill) => (
-                  <motion.div
-                    key={bill.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    transition={{ duration: 0.2 }}
-                  >
-                    <BillCard
-                      bill={bill}
-                      onViewDetails={setSelectedBill}
-                      onToggleTracking={handleToggleTracking}
-                      isTracked={trackedBillIds.includes(bill.id)}
-                    />
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </div>
+            <>
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                <AnimatePresence>
+                  {displayedBills.map((bill) => (
+                    <motion.div
+                      key={bill.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <BillCard
+                        bill={bill}
+                        onViewDetails={setSelectedBill}
+                        onToggleTracking={handleToggleTracking}
+                        isTracked={trackedBillIds.includes(bill.id)}
+                      />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+              {displayCount < filteredBills.length && (
+                <div className="text-center py-8">
+                  <div className="animate-pulse text-slate-600">
+                    Loading more bills...
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-center py-12">
               <FileText className="w-12 h-12 text-slate-400 mx-auto mb-4" />
