@@ -31,7 +31,7 @@ const navigationItems = [
     title: "Dashboard",
     url: createPageUrl("Dashboard"),
     icon: LayoutDashboard,
-    description: "All Bills Overview"
+    description: "All Bills from legis.ga.gov"
   },
   {
     title: "Tracked Bills",

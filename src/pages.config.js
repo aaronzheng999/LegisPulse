@@ -1,20 +1,20 @@
-import Dashboard from './pages/Dashboard';
 import BillForm from './pages/BillForm';
-import TrackedBills from './pages/TrackedBills';
+import Dashboard from './pages/Dashboard';
 import EmailLists from './pages/EmailLists';
-import TwitterFeed from './pages/TwitterFeed';
 import Settings from './pages/Settings';
+import TrackedBills from './pages/TrackedBills';
+import TwitterFeed from './pages/TwitterFeed';
 import TwitterSetup from './pages/TwitterSetup';
 import __Layout from './Layout.jsx';
 
 
 export const PAGES = {
-    "Dashboard": Dashboard,
     "BillForm": BillForm,
-    "TrackedBills": TrackedBills,
+    "Dashboard": Dashboard,
     "EmailLists": EmailLists,
-    "TwitterFeed": TwitterFeed,
     "Settings": Settings,
+    "TrackedBills": TrackedBills,
+    "TwitterFeed": TwitterFeed,
     "TwitterSetup": TwitterSetup,
 }
 

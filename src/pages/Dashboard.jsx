@@ -2,14 +2,14 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Bill } from "@/entities/Bill";
 import { User } from "@/entities/User";
 import { Button } from "@/components/ui/button";
-import { Plus, FileText, TrendingUp } from "lucide-react";
+import { FileText, TrendingUp, Globe } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import BillCard from "../components/bills/BillCard";
 import BillFilters from "../components/bills/BillFilters";
 import NewBillsModal from "../components/bills/NewBillsModal";
 import BillDetailsModal from "../components/bills/BillDetailsModal";
-import { createPageUrl } from "@/utils";
-import { Link } from "react-router-dom";
+import BillSyncButton from "../components/bills/BillSyncButton";
+import AutoSyncIndicator from "../components/bills/AutoSyncIndicator";
 
 export default function Dashboard() {
   const [bills, setBills] = useState([]);
