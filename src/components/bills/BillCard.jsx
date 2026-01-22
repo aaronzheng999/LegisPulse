@@ -9,8 +9,8 @@ import {
   Building2,
   AlertCircle,
   ExternalLink,
-  Star,
-  StarOff
+  Plus,
+  Check
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -59,15 +59,24 @@ export default function BillCard({ bill, onViewDetails, onToggleTracking, isTrac
           </div>
           <div className="flex items-center gap-2">
             <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => onToggleTracking(bill.id)}
-              className="opacity-60 group-hover:opacity-100 transition-opacity"
+              variant={isTracked ? "default" : "outline"}
+              size="sm"
+              onClick={() => onToggleTracking(bill.id, bill.bill_number)}
+              className={isTracked 
+                ? "bg-blue-600 hover:bg-blue-700 text-white gap-1" 
+                : "border-blue-200 text-blue-600 hover:bg-blue-50 gap-1"
+              }
             >
               {isTracked ? (
-                <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
+                <>
+                  <Check className="w-3 h-3" />
+                  Tracking
+                </>
               ) : (
-                <StarOff className="w-5 h-5 text-slate-400" />
+                <>
+                  <Plus className="w-3 h-3" />
+                  Track
+                </>
               )}
             </Button>
             {bill.pdf_url && (
