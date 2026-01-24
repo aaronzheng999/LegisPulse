@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { FileText, Globe } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -34,7 +34,7 @@ export default function Dashboard() {
     setIsLoading(true);
     try {
       const [billsData, userData] = await Promise.all([
-        base44.entities.Bill.list("-created_date"),
+        base44.entities.Bill.list("-last_action_date"),
         base44.auth.me().catch(() => null),
       ]);
       setBills(billsData);
