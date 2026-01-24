@@ -1,21 +1,25 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
-import { Button } from "@/components/ui/button";
-import { FileText, TrendingUp, Globe } from "lucide-react";
+import { FileText, Globe } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import BillCard from "../components/bills/BillCard";
 import BillFilters from "../components/bills/BillFilters";
 import NewBillsModal from "../components/bills/NewBillsModal";
 import BillDetailsModal from "../components/bills/BillDetailsModal";
 import BillSyncButton from "../components/bills/BillSyncButton";
-import AutoSyncIndicator from "../components/bills/AutoSyncIndicator";
 
 export default function Dashboard() {
   const [bills, setBills] = useState([]);
   const [filteredBills, setFilteredBills] = useState([]);
   const [displayedBills, setDisplayedBills] = useState([]);
   const [displayCount, setDisplayCount] = useState(10);
-  const [filters, setFilters] = useState({ session_year: 2026 });
+  const [filters, setFilters] = useState({
+    search: "",
+    chamber: null,
+    bill_type: null,
+    status: null,
+    session_year: null,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [showNewBillsModal, setShowNewBillsModal] = useState(false);
   const [selectedBill, setSelectedBill] = useState(null);
@@ -31,7 +35,7 @@ export default function Dashboard() {
     try {
       const [billsData, userData] = await Promise.all([
         base44.entities.Bill.list("-created_date"),
-        base44.auth.me().catch(() => null)
+        base44.auth.me().catch(() => null),
       ]);
       setBills(billsData);
       setUser(userData);
@@ -47,27 +51,32 @@ export default function Dashboard() {
 
     if (filters.search) {
       const search = filters.search.toLowerCase();
-      filtered = filtered.filter(bill => 
-        bill.bill_number.toLowerCase().includes(search) ||
-        bill.title.toLowerCase().includes(search) ||
-        bill.sponsor?.toLowerCase().includes(search)
+      filtered = filtered.filter(
+        (bill) =>
+          bill.bill_number.toLowerCase().includes(search) ||
+          bill.title.toLowerCase().includes(search) ||
+          bill.sponsor?.toLowerCase().includes(search),
       );
     }
 
     if (filters.chamber) {
-      filtered = filtered.filter(bill => bill.chamber === filters.chamber);
+      filtered = filtered.filter((bill) => bill.chamber === filters.chamber);
     }
 
     if (filters.bill_type) {
-      filtered = filtered.filter(bill => bill.bill_type === filters.bill_type);
+      filtered = filtered.filter(
+        (bill) => bill.bill_type === filters.bill_type,
+      );
     }
 
     if (filters.status) {
-      filtered = filtered.filter(bill => bill.status === filters.status);
+      filtered = filtered.filter((bill) => bill.status === filters.status);
     }
 
     if (filters.session_year) {
-      filtered = filtered.filter(bill => bill.session_year === filters.session_year);
+      filtered = filtered.filter(
+        (bill) => bill.session_year === filters.session_year,
+      );
     }
 
     setFilteredBills(filtered);
@@ -83,22 +92,25 @@ export default function Dashboard() {
 
   useEffect(() => {
     const handleScroll = () => {
-      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 500) {
+      if (
+        window.innerHeight + window.scrollY >=
+        document.documentElement.scrollHeight - 500
+      ) {
         if (displayCount < filteredBills.length) {
-          setDisplayCount(prev => prev + 10);
+          setDisplayCount((prev) => prev + 10);
         }
       }
     };
 
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
   }, [displayCount, filteredBills.length]);
 
   const getBillCounts = () => {
     return {
       total: filteredBills.length,
-      house: filteredBills.filter(bill => bill.chamber === 'house').length,
-      senate: filteredBills.filter(bill => bill.chamber === 'senate').length
+      house: filteredBills.filter((bill) => bill.chamber === "house").length,
+      senate: filteredBills.filter((bill) => bill.chamber === "senate").length,
     };
   };
 
@@ -107,7 +119,7 @@ export default function Dashboard() {
 
     const isCurrentlyTracked = trackedBillIds.includes(billId);
     const newTrackedIds = isCurrentlyTracked
-      ? trackedBillIds.filter(id => id !== billId)
+      ? trackedBillIds.filter((id) => id !== billId)
       : [...trackedBillIds, billId];
 
     setTrackedBillIds(newTrackedIds);
@@ -138,12 +150,12 @@ export default function Dashboard() {
                 properties: {
                   content: { type: "string" },
                   date: { type: "string" },
-                  source: { type: "string" }
-                }
-              }
-            }
-          }
-        }
+                  source: { type: "string" },
+                },
+              },
+            },
+          },
+        },
       }).then(async (response) => {
         if (response.has_updates && response.updates?.length > 0) {
           // Create notification for user
@@ -153,7 +165,7 @@ export default function Dashboard() {
             title: `${billNumber} mentioned on Twitter`,
             message: response.updates[0].content,
             related_bill_id: billNumber,
-            priority: "high"
+            priority: "high",
           });
         }
       });
@@ -165,7 +177,7 @@ export default function Dashboard() {
   const getNewBills = () => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    return bills.filter(bill => {
+    return bills.filter((bill) => {
       const created = new Date(bill.created_date);
       return created >= yesterday;
     });
@@ -177,7 +189,9 @@ export default function Dashboard() {
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900">Legislative Dashboard</h1>
+            <h1 className="text-3xl font-bold text-slate-900">
+              Legislative Dashboard
+            </h1>
             <p className="text-slate-600 mt-1 flex items-center gap-2">
               <Globe className="w-4 h-4" />
               Live bills from legis.ga.gov - 2025-2026 session
@@ -185,9 +199,6 @@ export default function Dashboard() {
           </div>
           <BillSyncButton onSyncComplete={loadData} />
         </div>
-
-        {/* Auto-sync Indicator */}
-        <AutoSyncIndicator lastSyncTime="Today" />
 
         {/* Filters */}
         <BillFilters
@@ -237,12 +248,13 @@ export default function Dashboard() {
           ) : (
             <div className="text-center py-12">
               <FileText className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">No bills found</h3>
+              <h3 className="text-xl font-semibold text-slate-900 mb-2">
+                No bills found
+              </h3>
               <p className="text-slate-600">
-                {bills.length === 0 
-                  ? "No bills have been added yet." 
-                  : "Try adjusting your filters to see more results."
-                }
+                {bills.length === 0
+                  ? "No bills have been added yet."
+                  : "Try adjusting your filters to see more results."}
               </p>
             </div>
           )}
@@ -261,7 +273,9 @@ export default function Dashboard() {
         bill={selectedBill}
         isOpen={!!selectedBill}
         onClose={() => setSelectedBill(null)}
-        isTracked={selectedBill ? trackedBillIds.includes(selectedBill.id) : false}
+        isTracked={
+          selectedBill ? trackedBillIds.includes(selectedBill.id) : false
+        }
         onToggleTracking={handleToggleTracking}
       />
     </div>

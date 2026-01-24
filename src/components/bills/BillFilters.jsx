@@ -12,11 +12,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Filter, Search, RefreshCw, Calendar } from "lucide-react";
 
-export default function BillFilters({ 
-  filters, 
-  onFilterChange, 
+export default function BillFilters({
+  filters,
+  onFilterChange,
   onShowNewBills,
-  billCounts 
+  billCounts,
 }) {
   return (
     <Card className="bg-white border-slate-200">
@@ -29,7 +29,9 @@ export default function BillFilters({
               <Input
                 placeholder="Search bills by number, title, or sponsor..."
                 value={filters.search || ""}
-                onChange={(e) => onFilterChange({ ...filters, search: e.target.value })}
+                onChange={(e) =>
+                  onFilterChange({ ...filters, search: e.target.value })
+                }
                 className="pl-10 border-slate-200 focus:border-blue-500 focus:ring-blue-500"
               />
             </div>
@@ -46,12 +48,19 @@ export default function BillFilters({
           <div className="flex flex-wrap gap-4 items-center">
             <div className="flex items-center gap-2">
               <Filter className="w-4 h-4 text-slate-500" />
-              <span className="text-sm font-medium text-slate-700">Filters:</span>
+              <span className="text-sm font-medium text-slate-700">
+                Filters:
+              </span>
             </div>
 
             <Select
               value={filters.chamber || "all"}
-              onValueChange={(value) => onFilterChange({ ...filters, chamber: value === "all" ? null : value })}
+              onValueChange={(value) =>
+                onFilterChange({
+                  ...filters,
+                  chamber: value === "all" ? null : value,
+                })
+              }
             >
               <SelectTrigger className="w-32 border-slate-200">
                 <SelectValue placeholder="Chamber" />
@@ -65,7 +74,12 @@ export default function BillFilters({
 
             <Select
               value={filters.bill_type || "all"}
-              onValueChange={(value) => onFilterChange({ ...filters, bill_type: value === "all" ? null : value })}
+              onValueChange={(value) =>
+                onFilterChange({
+                  ...filters,
+                  bill_type: value === "all" ? null : value,
+                })
+              }
             >
               <SelectTrigger className="w-40 border-slate-200">
                 <SelectValue placeholder="Type" />
@@ -74,13 +88,20 @@ export default function BillFilters({
                 <SelectItem value="all">All Types</SelectItem>
                 <SelectItem value="bill">Bills</SelectItem>
                 <SelectItem value="resolution">Resolutions</SelectItem>
-                <SelectItem value="constitutional_amendment">Constitutional Amendments</SelectItem>
+                <SelectItem value="constitutional_amendment">
+                  Constitutional Amendments
+                </SelectItem>
               </SelectContent>
             </Select>
 
             <Select
               value={filters.status || "all"}
-              onValueChange={(value) => onFilterChange({ ...filters, status: value === "all" ? null : value })}
+              onValueChange={(value) =>
+                onFilterChange({
+                  ...filters,
+                  status: value === "all" ? null : value,
+                })
+              }
             >
               <SelectTrigger className="w-44 border-slate-200">
                 <SelectValue placeholder="Status" />
@@ -89,25 +110,43 @@ export default function BillFilters({
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="introduced">Introduced</SelectItem>
                 <SelectItem value="in_committee">In Committee</SelectItem>
-                <SelectItem value="passed_first_reading">Passed 1st Reading</SelectItem>
-                <SelectItem value="passed_second_reading">Passed 2nd Reading</SelectItem>
-                <SelectItem value="passed_third_reading">Passed 3rd Reading</SelectItem>
-                <SelectItem value="sent_to_other_chamber">Sent to Other Chamber</SelectItem>
-                <SelectItem value="passed_both_chambers">Passed Both Chambers</SelectItem>
-                <SelectItem value="sent_to_governor">Sent to Governor</SelectItem>
+                <SelectItem value="passed_first_reading">
+                  Passed 1st Reading
+                </SelectItem>
+                <SelectItem value="passed_second_reading">
+                  Passed 2nd Reading
+                </SelectItem>
+                <SelectItem value="passed_third_reading">
+                  Passed 3rd Reading
+                </SelectItem>
+                <SelectItem value="sent_to_other_chamber">
+                  Sent to Other Chamber
+                </SelectItem>
+                <SelectItem value="passed_both_chambers">
+                  Passed Both Chambers
+                </SelectItem>
+                <SelectItem value="sent_to_governor">
+                  Sent to Governor
+                </SelectItem>
                 <SelectItem value="signed">Signed</SelectItem>
                 <SelectItem value="vetoed">Vetoed</SelectItem>
               </SelectContent>
             </Select>
 
             <Select
-              value={filters.session_year?.toString() || "2026"}
-              onValueChange={(value) => onFilterChange({ ...filters, session_year: parseInt(value) })}
+              value={filters.session_year?.toString() || "all"}
+              onValueChange={(value) =>
+                onFilterChange({
+                  ...filters,
+                  session_year: value === "all" ? null : parseInt(value, 10),
+                })
+              }
             >
-              <SelectTrigger className="w-28 border-slate-200">
+              <SelectTrigger className="w-32 border-slate-200">
                 <SelectValue placeholder="Year" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="all">All Years</SelectItem>
                 <SelectItem value="2026">2026</SelectItem>
                 <SelectItem value="2025">2025</SelectItem>
                 <SelectItem value="2024">2024</SelectItem>

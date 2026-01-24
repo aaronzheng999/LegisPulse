@@ -3,13 +3,7 @@ import { base44 } from "@/api/base44Client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Twitter, 
-  AlertCircle,
-  Info,
-  ExternalLink,
-  Settings
-} from "lucide-react";
+import { X, AlertCircle, Info, Settings } from "lucide-react";
 import TwitterFeed from "../components/twitter/TwitterFeed";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -27,12 +21,14 @@ export default function TwitterFeedPage() {
     try {
       const [userData, bills] = await Promise.all([
         base44.auth.me().catch(() => null),
-        base44.entities.Bill.list()
+        base44.entities.Bill.list(),
       ]);
-      
+
       setUser(userData);
       if (userData?.tracked_bill_ids) {
-        const filtered = bills.filter(bill => userData.tracked_bill_ids.includes(bill.id));
+        const filtered = bills.filter((bill) =>
+          userData.tracked_bill_ids.includes(bill.id),
+        );
         setTrackedBills(filtered);
       }
     } catch (error) {
@@ -40,7 +36,7 @@ export default function TwitterFeedPage() {
     }
   };
 
-  const trackedBillNumbers = trackedBills.map(bill => bill.bill_number);
+  const trackedBillNumbers = trackedBills.map((bill) => bill.bill_number);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -49,10 +45,12 @@ export default function TwitterFeedPage() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-blue-100 rounded-lg">
-              <Twitter className="w-6 h-6 text-blue-600" />
+              <X className="w-6 h-6 text-blue-600" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-slate-900">Legislative Twitter Feed</h1>
+              <h1 className="text-3xl font-bold text-slate-900">
+                Legislative Twitter Feed
+              </h1>
               <p className="text-slate-600 mt-1">
                 Live updates from official Georgia Legislature accounts
               </p>
@@ -84,10 +82,15 @@ export default function TwitterFeedPage() {
                   </Badge>
                 </div>
                 <p className="text-blue-800">
-                  We monitor these official accounts and alert you when your tracked bills are mentioned. 
-                  {user?.twitter_notifications_enabled && user?.phone_notifications_enabled && (
-                    <span className="font-medium"> Phone notifications are enabled.</span>
-                  )}
+                  We monitor these official accounts and alert you when your
+                  tracked bills are mentioned.
+                  {user?.twitter_notifications_enabled &&
+                    user?.phone_notifications_enabled && (
+                      <span className="font-medium">
+                        {" "}
+                        Phone notifications are enabled.
+                      </span>
+                    )}
                 </p>
               </div>
             </div>
@@ -104,15 +107,19 @@ export default function TwitterFeedPage() {
                   Twitter Integration Setup Required
                 </p>
                 <p className="text-orange-800">
-                  To enable live Twitter feed and real-time notifications, you need to:
+                  To enable live Twitter feed and real-time notifications, you
+                  need to:
                 </p>
                 <ol className="list-decimal list-inside space-y-1 text-orange-800 ml-2">
                   <li>Enable backend functions in your app settings</li>
-                  <li>Connect Twitter/X API access (we'll guide you through this)</li>
+                  <li>
+                    Connect Twitter/X API access (we'll guide you through this)
+                  </li>
                   <li>Configure phone notification service (SMS/Push)</li>
                 </ol>
                 <p className="text-orange-800">
-                  The interface is ready - once backend functions are enabled, we can set up the live integration.
+                  The interface is ready - once backend functions are enabled,
+                  we can set up the live integration.
                 </p>
               </div>
             </div>
@@ -125,14 +132,14 @@ export default function TwitterFeedPage() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-600 font-medium">Tracked Bills</p>
+                  <p className="text-sm text-slate-600 font-medium">
+                    Tracked Bills
+                  </p>
                   <p className="text-2xl font-bold text-slate-900 mt-1">
                     {trackedBills.length}
                   </p>
                 </div>
-                <Badge className="bg-blue-100 text-blue-800">
-                  Monitoring
-                </Badge>
+                <Badge className="bg-blue-100 text-blue-800">Monitoring</Badge>
               </div>
             </CardContent>
           </Card>
@@ -141,12 +148,20 @@ export default function TwitterFeedPage() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-600 font-medium">Notifications</p>
+                  <p className="text-sm text-slate-600 font-medium">
+                    Notifications
+                  </p>
                   <p className="text-2xl font-bold text-slate-900 mt-1">
                     {user?.twitter_notifications_enabled ? "ON" : "OFF"}
                   </p>
                 </div>
-                <Badge className={user?.twitter_notifications_enabled ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}>
+                <Badge
+                  className={
+                    user?.twitter_notifications_enabled
+                      ? "bg-green-100 text-green-800"
+                      : "bg-gray-100 text-gray-800"
+                  }
+                >
                   {user?.twitter_notifications_enabled ? "Enabled" : "Disabled"}
                 </Badge>
               </div>
@@ -157,12 +172,20 @@ export default function TwitterFeedPage() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-slate-600 font-medium">Phone Alerts</p>
+                  <p className="text-sm text-slate-600 font-medium">
+                    Phone Alerts
+                  </p>
                   <p className="text-2xl font-bold text-slate-900 mt-1">
                     {user?.phone_notifications_enabled ? "ON" : "OFF"}
                   </p>
                 </div>
-                <Badge className={user?.phone_notifications_enabled ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}>
+                <Badge
+                  className={
+                    user?.phone_notifications_enabled
+                      ? "bg-green-100 text-green-800"
+                      : "bg-gray-100 text-gray-800"
+                  }
+                >
                   {user?.phone_notifications_enabled ? "Enabled" : "Disabled"}
                 </Badge>
               </div>
@@ -189,7 +212,7 @@ export default function TwitterFeedPage() {
         </div>
 
         {/* Twitter Feed Component */}
-        <TwitterFeed 
+        <TwitterFeed
           trackedBillNumbers={trackedBillNumbers}
           showAllTweets={showAllTweets}
         />
@@ -203,19 +226,24 @@ export default function TwitterFeedPage() {
             </h3>
             <div className="space-y-2 text-sm text-slate-700">
               <p>
-                • We monitor official Georgia House and Senate Twitter accounts 24/7
+                • We monitor official Georgia House and Senate Twitter accounts
+                24/7
               </p>
               <p>
-                • When a tweet mentions any of your tracked bills, you'll receive instant notifications
+                • When a tweet mentions any of your tracked bills, you'll
+                receive instant notifications
               </p>
               <p>
-                • Notifications can be sent to your phone via SMS or push notification
+                • Notifications can be sent to your phone via SMS or push
+                notification
               </p>
               <p>
-                • Filter the feed to see only tweets about bills you're tracking or view all legislative updates
+                • Filter the feed to see only tweets about bills you're tracking
+                or view all legislative updates
               </p>
               <p>
-                • All tweets are automatically linked to the relevant bill pages in your dashboard
+                • All tweets are automatically linked to the relevant bill pages
+                in your dashboard
               </p>
             </div>
             <div className="mt-4 pt-4 border-t border-slate-200">

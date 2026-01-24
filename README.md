@@ -1,39 +1,32 @@
-**Welcome to your Base44 project** 
+## Legistrack GA
 
-**About**
+This project tracks Georgia legislative bills using the LegiScan API.
 
-View and Edit  your app on [Base44.com](http://Base44.com) 
+### Setup
 
-This project contains everything you need to run your app locally.
+1. Install dependencies: `npm install`
+2. Get a LegiScan API key from https://legiscan.com/legiscan
+3. Create `.env.local` and add:
+   ```
+   VITE_LEGISCAN_API_KEY=your_api_key_here
+   ```
+4. Start dev server: `npm run dev`
 
-**Edit the code in your local development environment**
+### Features
 
-Any change pushed to the repo will also be reflected in the Base44 Builder.
+- Sync bills from LegiScan API for Georgia legislature
+- Track bills you're interested in
+- Email notifications to client lists
+- Mock Twitter feed monitoring (ready for real API integration)
 
-**Prerequisites:** 
+### Mock vs Real Data
 
-1. Clone the repository using the project's Git URL 
-2. Navigate to the project directory
-3. Install dependencies: `npm install`
-4. Create an `.env.local` file and set the right environment variables
+- **Mock mode**: Uses seed data in `localStorage` when LegiScan API key is not configured
+- **LegiScan mode**: Click "Sync Bills from LegiScan" to fetch real Georgia bills
+- User tracking, notifications, and email lists persist in browser storage
 
-```
-VITE_BASE44_APP_ID=your_app_id
-VITE_BASE44_APP_BASE_URL=your_backend_url
+### Replacing the mock with a real backend
 
-e.g.
-VITE_BASE44_APP_ID=cbef744a8545c389ef439ea6
-VITE_BASE44_APP_BASE_URL=https://my-to-do-list-81bfaad7.base44.app
-```
-
-Run the app: `npm run dev`
-
-**Publish your changes**
-
-Open [Base44.com](http://Base44.com) and click on Publish.
-
-**Docs & Support**
-
-Documentation: [https://docs.base44.com/Integrations/Using-GitHub](https://docs.base44.com/Integrations/Using-GitHub)
-
-Support: [https://app.base44.com/support](https://app.base44.com/support)
+- The client in `src/api/base44Client.js` provides a browser-only mock API
+- Replace method bodies under `auth`, `entities`, and `integrations` with calls to your backend
+- Or keep using `localStorage` for a lightweight single-user setup
