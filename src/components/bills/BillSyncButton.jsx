@@ -22,15 +22,16 @@ export default function BillSyncButton({ onSyncComplete }) {
 
       setProgress(prev => ({ ...prev, total: 1 }));
 
-      // Use InvokeLLM with web context to fetch bills from legis.ga.gov
+      // Use LegiScan public API to fetch Georgia bills
       const response = await base44.integrations.Core.InvokeLLM({
-        prompt: `Go to https://www.legis.ga.gov and find ALL bills for the 2025-2026 Georgia legislative session (this is a two-year consecutive session).
+        prompt: `Access the LegiScan public API (https://legiscan.com/gaits/documentation/legiscan) for Georgia state legislature.
+Use the API to fetch ALL bills from the 2025-2026 Georgia legislative session.
 
-IMPORTANT: Get ALL bills starting from:
-- House Bills: HB 1, HB 2, HB 3... up to the most recent HB number
-- Senate Bills: SB 1, SB 2, SB 3... up to the most recent SB number
-- House Resolutions: HR 1, HR 2... up to the most recent
-- Senate Resolutions: SR 1, SR 2... up to the most recent
+Get the most up-to-date information including:
+- ALL House Bills (HB) from the current session
+- ALL Senate Bills (SB) from the current session  
+- ALL House Resolutions (HR)
+- ALL Senate Resolutions (SR)
 
 For EACH bill, extract:
 - bill_number (e.g., HB 1, SB 23, HR 45, SR 12)
@@ -39,11 +40,12 @@ For EACH bill, extract:
 - bill_type (bill, resolution, or constitutional_amendment)
 - sponsor (primary sponsor name)
 - status (current status)
-- last_action (most recent action description)
+- last_action (most recent action description from the API)
 - last_action_date (date of last action)
-- session_year (2025 or 2026 based on when it was introduced)
+- session_year (2025 or 2026)
+- pdf_url (link to bill PDF if available)
 
-Return a comprehensive list of ALL bills from the 2025-2026 session.`,
+Return ALL bills with their most recent updates from the LegiScan API.`,
         add_context_from_internet: true,
         response_json_schema: {
           type: "object",
@@ -61,7 +63,8 @@ Return a comprehensive list of ALL bills from the 2025-2026 session.`,
                   status: { type: "string" },
                   last_action: { type: "string" },
                   last_action_date: { type: "string" },
-                  session_year: { type: "integer" }
+                  session_year: { type: "integer" },
+                  pdf_url: { type: "string" }
                 }
               }
             }
@@ -72,14 +75,13 @@ Return a comprehensive list of ALL bills from the 2025-2026 session.`,
       const bills = response.bills || [];
       setProgress(prev => ({ ...prev, total: bills.length }));
 
-      // Filter out bills that already exist
-      const newBills = bills.filter(bill => !existingBillNumbers.has(bill.bill_number));
-      
-      // Create new bills in database
+      // Update existing bills and create new ones
       let created = 0;
-      for (const bill of newBills) {
+      let updated = 0;
+      
+      for (const bill of bills) {
         try {
-          await base44.entities.Bill.create({
+          const billData = {
             bill_number: bill.bill_number,
             title: bill.title,
             chamber: bill.chamber.toLowerCase(),
@@ -89,24 +91,37 @@ Return a comprehensive list of ALL bills from the 2025-2026 session.`,
             status: mapStatus(bill.status),
             last_action: bill.last_action,
             last_action_date: bill.last_action_date || new Date().toISOString().split('T')[0],
+            pdf_url: bill.pdf_url || null,
             is_tracked: false,
             tags: []
-          });
-          created++;
+          };
+
+          if (existingBillNumbers.has(bill.bill_number)) {
+            // Update existing bill with latest info
+            const existingBill = existingBills.find(b => b.bill_number === bill.bill_number);
+            await base44.entities.Bill.update(existingBill.id, billData);
+            updated++;
+          } else {
+            // Create new bill
+            await base44.entities.Bill.create(billData);
+            created++;
+          }
+          
           setProgress(prev => ({ 
             ...prev, 
             current: prev.current + 1,
             newBills: created
           }));
         } catch (error) {
-          console.error(`Error creating bill ${bill.bill_number}:`, error);
+          console.error(`Error processing bill ${bill.bill_number}:`, error);
         }
       }
 
       setSyncStatus({
         success: true,
-        message: `Synced ${bills.length} bills from 2025-2026 GA session`,
+        message: `Synced ${bills.length} bills from LegiScan API`,
         newBills: created,
+        updatedBills: updated,
         total: bills.length
       });
 
@@ -152,12 +167,12 @@ Return a comprehensive list of ALL bills from the 2025-2026 session.`,
         {isSyncing ? (
           <>
             <RefreshCw className="w-4 h-4 animate-spin" />
-            Syncing from legis.ga.gov...
+            Syncing from LegiScan API...
           </>
         ) : (
           <>
             <Download className="w-4 h-4" />
-            Sync Bills from GA Legislature
+            Sync Bills from LegiScan
           </>
         )}
       </Button>
@@ -203,9 +218,9 @@ Return a comprehensive list of ALL bills from the 2025-2026 session.`,
                 </p>
                 {syncStatus.success && (
                   <div className="flex gap-3 text-sm text-green-800">
-                    <span>New Bills: <strong>{syncStatus.newBills}</strong></span>
+                    <span>New: <strong>{syncStatus.newBills}</strong></span>
+                    <span>Updated: <strong>{syncStatus.updatedBills}</strong></span>
                     <span>Total: <strong>{syncStatus.total}</strong></span>
-                    <span>Already Exists: <strong>{syncStatus.total - syncStatus.newBills}</strong></span>
                   </div>
                 )}
                 {syncStatus.error && (
