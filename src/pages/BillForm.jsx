@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState } from "react";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,26 +35,26 @@ export default function BillForm() {
     pdf_url: "",
     last_action: "",
     last_action_date: "",
-    tags: []
+    tags: [],
   });
 
   const handleInputChange = (field, value) => {
-    setBillData(prev => ({ ...prev, [field]: value }));
+    setBillData((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleArrayAdd = (field, value) => {
     if (value.trim()) {
-      setBillData(prev => ({
+      setBillData((prev) => ({
         ...prev,
-        [field]: [...prev[field], value.trim()]
+        [field]: [...prev[field], value.trim()],
       }));
     }
   };
 
   const handleArrayRemove = (field, index) => {
-    setBillData(prev => ({
+    setBillData((prev) => ({
       ...prev,
-      [field]: prev[field].filter((_, i) => i !== index)
+      [field]: prev[field].filter((_, i) => i !== index),
     }));
   };
 
@@ -84,7 +85,9 @@ export default function BillForm() {
           </Button>
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Add New Bill</h1>
-            <p className="text-slate-600">Enter the details of a new legislative bill</p>
+            <p className="text-slate-600">
+              Enter the details of a new legislative bill
+            </p>
           </div>
         </div>
 
@@ -102,7 +105,9 @@ export default function BillForm() {
                     id="bill_number"
                     placeholder="e.g., HB 123, SB 456"
                     value={billData.bill_number}
-                    onChange={(e) => handleInputChange('bill_number', e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("bill_number", e.target.value)
+                    }
                     required
                   />
                 </div>
@@ -110,7 +115,9 @@ export default function BillForm() {
                   <Label htmlFor="chamber">Chamber *</Label>
                   <Select
                     value={billData.chamber}
-                    onValueChange={(value) => handleInputChange('chamber', value)}
+                    onValueChange={(value) =>
+                      handleInputChange("chamber", value)
+                    }
                     required
                   >
                     <SelectTrigger>
@@ -126,7 +133,9 @@ export default function BillForm() {
                   <Label htmlFor="bill_type">Bill Type *</Label>
                   <Select
                     value={billData.bill_type}
-                    onValueChange={(value) => handleInputChange('bill_type', value)}
+                    onValueChange={(value) =>
+                      handleInputChange("bill_type", value)
+                    }
                     required
                   >
                     <SelectTrigger>
@@ -135,7 +144,9 @@ export default function BillForm() {
                     <SelectContent>
                       <SelectItem value="bill">Bill</SelectItem>
                       <SelectItem value="resolution">Resolution</SelectItem>
-                      <SelectItem value="constitutional_amendment">Constitutional Amendment</SelectItem>
+                      <SelectItem value="constitutional_amendment">
+                        Constitutional Amendment
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -147,7 +158,7 @@ export default function BillForm() {
                   id="title"
                   placeholder="Enter the full title of the bill"
                   value={billData.title}
-                  onChange={(e) => handleInputChange('title', e.target.value)}
+                  onChange={(e) => handleInputChange("title", e.target.value)}
                   required
                 />
               </div>
@@ -159,7 +170,9 @@ export default function BillForm() {
                     id="lc_number"
                     placeholder="e.g., LC 28 9876"
                     value={billData.lc_number}
-                    onChange={(e) => handleInputChange('lc_number', e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("lc_number", e.target.value)
+                    }
                   />
                 </div>
                 <div>
@@ -168,7 +181,9 @@ export default function BillForm() {
                     id="sponsor"
                     placeholder="e.g., Rep. John Smith"
                     value={billData.sponsor}
-                    onChange={(e) => handleInputChange('sponsor', e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("sponsor", e.target.value)
+                    }
                     required
                   />
                 </div>
@@ -187,7 +202,9 @@ export default function BillForm() {
                   <Label htmlFor="status">Current Status</Label>
                   <Select
                     value={billData.status}
-                    onValueChange={(value) => handleInputChange('status', value)}
+                    onValueChange={(value) =>
+                      handleInputChange("status", value)
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -195,12 +212,24 @@ export default function BillForm() {
                     <SelectContent>
                       <SelectItem value="introduced">Introduced</SelectItem>
                       <SelectItem value="in_committee">In Committee</SelectItem>
-                      <SelectItem value="passed_first_reading">Passed 1st Reading</SelectItem>
-                      <SelectItem value="passed_second_reading">Passed 2nd Reading</SelectItem>
-                      <SelectItem value="passed_third_reading">Passed 3rd Reading</SelectItem>
-                      <SelectItem value="sent_to_other_chamber">Sent to Other Chamber</SelectItem>
-                      <SelectItem value="passed_both_chambers">Passed Both Chambers</SelectItem>
-                      <SelectItem value="sent_to_governor">Sent to Governor</SelectItem>
+                      <SelectItem value="passed_first_reading">
+                        Passed 1st Reading
+                      </SelectItem>
+                      <SelectItem value="passed_second_reading">
+                        Passed 2nd Reading
+                      </SelectItem>
+                      <SelectItem value="passed_third_reading">
+                        Passed 3rd Reading
+                      </SelectItem>
+                      <SelectItem value="sent_to_other_chamber">
+                        Sent to Other Chamber
+                      </SelectItem>
+                      <SelectItem value="passed_both_chambers">
+                        Passed Both Chambers
+                      </SelectItem>
+                      <SelectItem value="sent_to_governor">
+                        Sent to Governor
+                      </SelectItem>
                       <SelectItem value="signed">Signed</SelectItem>
                       <SelectItem value="vetoed">Vetoed</SelectItem>
                     </SelectContent>
@@ -212,7 +241,12 @@ export default function BillForm() {
                     id="session_year"
                     type="number"
                     value={billData.session_year}
-                    onChange={(e) => handleInputChange('session_year', parseInt(e.target.value))}
+                    onChange={(e) =>
+                      handleInputChange(
+                        "session_year",
+                        parseInt(e.target.value),
+                      )
+                    }
                   />
                 </div>
                 <div>
@@ -221,7 +255,9 @@ export default function BillForm() {
                     id="pdf_url"
                     placeholder="https://..."
                     value={billData.pdf_url}
-                    onChange={(e) => handleInputChange('pdf_url', e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("pdf_url", e.target.value)
+                    }
                   />
                 </div>
               </div>
@@ -232,7 +268,9 @@ export default function BillForm() {
                   id="current_committee"
                   placeholder="e.g., House Judiciary Committee"
                   value={billData.current_committee}
-                  onChange={(e) => handleInputChange('current_committee', e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange("current_committee", e.target.value)
+                  }
                 />
               </div>
 
@@ -243,7 +281,9 @@ export default function BillForm() {
                     id="last_action"
                     placeholder="e.g., Referred to committee"
                     value={billData.last_action}
-                    onChange={(e) => handleInputChange('last_action', e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("last_action", e.target.value)
+                    }
                   />
                 </div>
                 <div>
@@ -252,7 +292,9 @@ export default function BillForm() {
                     id="last_action_date"
                     type="date"
                     value={billData.last_action_date}
-                    onChange={(e) => handleInputChange('last_action_date', e.target.value)}
+                    onChange={(e) =>
+                      handleInputChange("last_action_date", e.target.value)
+                    }
                   />
                 </div>
               </div>
@@ -267,8 +309,12 @@ export default function BillForm() {
             <CardContent>
               <ArrayInput
                 values={billData.ocga_sections_affected}
-                onAdd={(value) => handleArrayAdd('ocga_sections_affected', value)}
-                onRemove={(index) => handleArrayRemove('ocga_sections_affected', index)}
+                onAdd={(value) =>
+                  handleArrayAdd("ocga_sections_affected", value)
+                }
+                onRemove={(index) =>
+                  handleArrayRemove("ocga_sections_affected", index)
+                }
                 placeholder="e.g., 16-11-130, 20-2-150"
                 label="OCGA Section"
               />
@@ -308,7 +354,7 @@ export default function BillForm() {
   );
 }
 
-function ArrayInput({ values, onAdd, onRemove, placeholder, label }) {
+function ArrayInput({ values, onAdd, onRemove, placeholder, label: _label }) {
   const [inputValue, setInputValue] = useState("");
 
   const handleAdd = () => {
@@ -319,7 +365,7 @@ function ArrayInput({ values, onAdd, onRemove, placeholder, label }) {
   };
 
   const handleKeyPress = (e) => {
-    if (e.key === 'Enter') {
+    if (e.key === "Enter") {
       e.preventDefault();
       handleAdd();
     }

@@ -4,11 +4,16 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { RefreshCw, Download, CheckCircle, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { fetchGABills, isLegiScanConfigured } from "@/services/legiscan";
 
 export default function BillSyncButton({ onSyncComplete }) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
-  const [progress, setProgress] = useState({ current: 0, total: 0, newBills: 0 });
+  const [progress, setProgress] = useState({
+    current: 0,
+    total: 0,
+    newBills: 0,
+  });
 
   const syncBillsFromWebsite = async () => {
     setIsSyncing(true);
@@ -16,115 +21,135 @@ export default function BillSyncButton({ onSyncComplete }) {
     setProgress({ current: 0, total: 0, newBills: 0 });
 
     try {
+      // Check if LegiScan is configured
+      if (!isLegiScanConfigured()) {
+        throw new Error(
+          "LegiScan API key not configured. Add VITE_LEGISCAN_API_KEY to your .env file.",
+        );
+      }
+
       // Fetch current bills from database
       const existingBills = await base44.entities.Bill.list();
-      const existingBillNumbers = new Set(existingBills.map(b => b.bill_number));
 
-      setProgress(prev => ({ ...prev, total: 1 }));
+      // Fetch bills from LegiScan API
+      const bills = await fetchGABills();
+      setProgress((prev) => ({ ...prev, total: bills.length }));
 
-      // Use LegiScan public API to fetch Georgia bills
-      const response = await base44.integrations.Core.InvokeLLM({
-        prompt: `Access the LegiScan public API (https://legiscan.com/gaits/documentation/legiscan) for Georgia state legislature.
-Fetch EVERY SINGLE bill from the 2025-2026 Georgia legislative session.
+      // Count senate bills in new data
+      const newSenateBills = bills.filter((b) => b.chamber === "senate").length;
 
-CRITICAL: Get COMPLETE list from bill number 1 to the highest number:
-- House Bills: HB 1, HB 2, HB 3... ALL the way to the most recent HB number (could be HB 500, HB 1000, or higher)
-- Senate Bills: SB 1, SB 2, SB 3... ALL the way to the most recent SB number
-- House Resolutions: HR 1, HR 2... to the most recent HR
-- Senate Resolutions: SR 1, SR 2... to the most recent SR
+      // Count senate bills in existing data
+      const existingSenateBills = existingBills.filter(
+        (b) => b.chamber === "senate",
+      ).length;
 
-Do NOT skip any bills. If there are 800 House Bills, return all 800. If there are 400 Senate Bills, return all 400.
-
-For EACH bill, extract:
-- bill_number (e.g., HB 1, SB 23, HR 45, SR 12)
-- title (official title)
-- chamber (house or senate)
-- bill_type (bill, resolution, or constitutional_amendment)
-- sponsor (primary sponsor name)
-- status (current status)
-- last_action (most recent action description from the API)
-- last_action_date (date of last action)
-- session_year (2025 or 2026)
-- pdf_url (link to bill PDF if available)
-
-Return the COMPLETE comprehensive list of ALL bills with their most recent updates.`,
-        add_context_from_internet: true,
-        response_json_schema: {
-          type: "object",
-          properties: {
-            bills: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  bill_number: { type: "string" },
-                  title: { type: "string" },
-                  chamber: { type: "string" },
-                  bill_type: { type: "string" },
-                  sponsor: { type: "string" },
-                  status: { type: "string" },
-                  last_action: { type: "string" },
-                  last_action_date: { type: "string" },
-                  session_year: { type: "integer" },
-                  pdf_url: { type: "string" }
-                }
-              }
-            }
-          }
-        }
-      });
-
-      const bills = response.bills || [];
-      setProgress(prev => ({ ...prev, total: bills.length }));
-
-      // Update existing bills and create new ones
-      let created = 0;
-      let updated = 0;
-      
-      for (const bill of bills) {
-        try {
-          const billData = {
+      // If new data has senate bills but existing data has almost none, clear and rebuild
+      if (
+        newSenateBills > 100 &&
+        existingSenateBills < 50 &&
+        existingBills.length > 0
+      ) {
+        // Clear old bills and rebuild with new chamber assignments
+        await base44.entities.Bill.clearAll();
+        await base44.entities.Bill.replaceAll(
+          bills.map((bill) => ({
             bill_number: bill.bill_number,
             title: bill.title,
-            chamber: bill.chamber.toLowerCase(),
-            bill_type: bill.bill_type || "bill",
+            chamber: bill.chamber,
+            bill_type: bill.bill_type,
             sponsor: bill.sponsor,
-            session_year: bill.session_year || 2026,
-            status: mapStatus(bill.status),
+            session_year: bill.session_year,
+            status: bill.status,
             last_action: bill.last_action,
-            last_action_date: bill.last_action_date || new Date().toISOString().split('T')[0],
-            pdf_url: bill.pdf_url || null,
+            last_action_date: bill.last_action_date,
+            pdf_url: bill.url,
             is_tracked: false,
-            tags: []
-          };
+            tags: [],
+          })),
+        );
+        setSyncStatus({
+          success: true,
+          message: `Rebuilt bill store with correct chambers (${bills.length} bills)`,
+          newBills: bills.length,
+          total: bills.length,
+        });
+        if (onSyncComplete) onSyncComplete();
+        setIsSyncing(false);
+        return;
+      }
 
-          if (existingBillNumbers.has(bill.bill_number)) {
-            // Update existing bill with latest info
-            const existingBill = existingBills.find(b => b.bill_number === bill.bill_number);
-            await base44.entities.Bill.update(existingBill.id, billData);
-            updated++;
-          } else {
-            // Create new bill
-            await base44.entities.Bill.create(billData);
-            created++;
-          }
-          
-          setProgress(prev => ({ 
-            ...prev, 
+      const existingBillNumbers = new Set(
+        existingBills.map((b) => b.bill_number),
+      );
+
+      // Filter out bills that already exist
+      const newBills = bills.filter(
+        (bill) => !existingBillNumbers.has(bill.bill_number),
+      );
+
+      // If nothing new but remote count exceeds local, rebuild store
+      if (newBills.length === 0 && existingBills.length < bills.length) {
+        await base44.entities.Bill.replaceAll(
+          bills.map((bill) => ({
+            bill_number: bill.bill_number,
+            title: bill.title,
+            chamber: bill.chamber,
+            bill_type: bill.bill_type,
+            sponsor: bill.sponsor,
+            session_year: bill.session_year,
+            status: bill.status,
+            last_action: bill.last_action,
+            last_action_date: bill.last_action_date,
+            pdf_url: bill.url,
+            is_tracked: false,
+            tags: [],
+          })),
+        );
+        setSyncStatus({
+          success: true,
+          message: `Rebuilt bill store from LegiScan (${bills.length} bills)`,
+          newBills: bills.length,
+          total: bills.length,
+        });
+        if (onSyncComplete) onSyncComplete();
+        setIsSyncing(false);
+        return;
+      }
+
+      // Create new bills in database
+      let created = 0;
+      for (const bill of newBills) {
+        try {
+          await base44.entities.Bill.create({
+            bill_number: bill.bill_number,
+            title: bill.title,
+            chamber: bill.chamber,
+            bill_type: bill.bill_type,
+            sponsor: bill.sponsor,
+            session_year: bill.session_year,
+            status: bill.status,
+            last_action: bill.last_action,
+            last_action_date: bill.last_action_date,
+            pdf_url: bill.url,
+            is_tracked: false,
+            tags: [],
+          });
+          created++;
+          setProgress((prev) => ({
+            ...prev,
             current: prev.current + 1,
-            newBills: created
+            newBills: created,
           }));
         } catch (error) {
-          console.error(`Error processing bill ${bill.bill_number}:`, error);
+          console.error(`Error creating bill ${bill.bill_number}:`, error);
         }
       }
 
       setSyncStatus({
         success: true,
-        message: `Synced ${bills.length} bills from LegiScan API`,
+        message: `Synced ${bills.length} bills from LegiScan`,
         newBills: created,
-        updatedBills: updated,
-        total: bills.length
+        total: bills.length,
       });
 
       if (onSyncComplete) {
@@ -134,29 +159,12 @@ Return the COMPLETE comprehensive list of ALL bills with their most recent updat
       console.error("Error syncing bills:", error);
       setSyncStatus({
         success: false,
-        message: "Failed to sync bills. Please try again.",
-        error: error.message
+        message: error.message || "Failed to sync bills. Please try again.",
+        error: error.message,
       });
     }
 
     setIsSyncing(false);
-  };
-
-  const mapStatus = (status) => {
-    if (!status) return "introduced";
-    const statusLower = status.toLowerCase();
-    
-    if (statusLower.includes("signed") || statusLower.includes("approved")) return "signed";
-    if (statusLower.includes("veto")) return "vetoed";
-    if (statusLower.includes("governor")) return "sent_to_governor";
-    if (statusLower.includes("passed") && statusLower.includes("both")) return "passed_both_chambers";
-    if (statusLower.includes("third reading")) return "passed_third_reading";
-    if (statusLower.includes("second reading")) return "passed_second_reading";
-    if (statusLower.includes("first reading")) return "passed_first_reading";
-    if (statusLower.includes("committee")) return "in_committee";
-    if (statusLower.includes("dead") || statusLower.includes("failed")) return "dead";
-    
-    return "introduced";
   };
 
   return (
@@ -169,7 +177,7 @@ Return the COMPLETE comprehensive list of ALL bills with their most recent updat
         {isSyncing ? (
           <>
             <RefreshCw className="w-4 h-4 animate-spin" />
-            Syncing from LegiScan API...
+            Syncing from LegiScan...
           </>
         ) : (
           <>
@@ -184,15 +192,19 @@ Return the COMPLETE comprehensive list of ALL bills with their most recent updat
           <CardContent className="p-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-blue-900 font-medium">Processing bills...</span>
+                <span className="text-blue-900 font-medium">
+                  Processing bills...
+                </span>
                 <Badge className="bg-blue-600 text-white">
                   {progress.current} / {progress.total}
                 </Badge>
               </div>
               <div className="w-full bg-blue-200 rounded-full h-2">
-                <div 
+                <div
                   className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${(progress.current / progress.total) * 100}%` }}
+                  style={{
+                    width: `${(progress.current / progress.total) * 100}%`,
+                  }}
                 />
               </div>
               {progress.newBills > 0 && (
@@ -206,7 +218,13 @@ Return the COMPLETE comprehensive list of ALL bills with their most recent updat
       )}
 
       {syncStatus && (
-        <Card className={syncStatus.success ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}>
+        <Card
+          className={
+            syncStatus.success
+              ? "border-green-200 bg-green-50"
+              : "border-red-200 bg-red-50"
+          }
+        >
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
               {syncStatus.success ? (
@@ -215,14 +233,23 @@ Return the COMPLETE comprehensive list of ALL bills with their most recent updat
                 <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
               )}
               <div className="space-y-1">
-                <p className={`font-medium ${syncStatus.success ? "text-green-900" : "text-red-900"}`}>
+                <p
+                  className={`font-medium ${syncStatus.success ? "text-green-900" : "text-red-900"}`}
+                >
                   {syncStatus.message}
                 </p>
                 {syncStatus.success && (
                   <div className="flex gap-3 text-sm text-green-800">
-                    <span>New: <strong>{syncStatus.newBills}</strong></span>
-                    <span>Updated: <strong>{syncStatus.updatedBills}</strong></span>
-                    <span>Total: <strong>{syncStatus.total}</strong></span>
+                    <span>
+                      New Bills: <strong>{syncStatus.newBills}</strong>
+                    </span>
+                    <span>
+                      Total: <strong>{syncStatus.total}</strong>
+                    </span>
+                    <span>
+                      Already Exists:{" "}
+                      <strong>{syncStatus.total - syncStatus.newBills}</strong>
+                    </span>
                   </div>
                 )}
                 {syncStatus.error && (

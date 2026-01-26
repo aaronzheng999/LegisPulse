@@ -6,14 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Mail, 
-  Plus, 
-  Users, 
+import {
+  Mail,
+  Plus,
+  Users,
   Send,
   Trash2,
   Edit,
-  CheckCircle
+  CheckCircle,
 } from "lucide-react";
 import {
   Dialog,
@@ -41,12 +41,14 @@ export default function EmailLists() {
       const [lists, user, bills] = await Promise.all([
         base44.entities.EmailList.list("-created_date"),
         base44.auth.me().catch(() => null),
-        base44.entities.Bill.list()
+        base44.entities.Bill.list(),
       ]);
-      
+
       setEmailLists(lists);
       if (user?.tracked_bill_ids) {
-        const filtered = bills.filter(bill => user.tracked_bill_ids.includes(bill.id));
+        const filtered = bills.filter((bill) =>
+          user.tracked_bill_ids.includes(bill.id),
+        );
         setTrackedBills(filtered);
       }
     } catch (error) {
@@ -56,14 +58,17 @@ export default function EmailLists() {
   };
 
   const sendBillUpdate = async (listId) => {
-    const emailList = emailLists.find(list => list.id === listId);
+    const emailList = emailLists.find((list) => list.id === listId);
     if (!emailList || trackedBills.length === 0) return;
 
     setIsSending(true);
     try {
-      const billSummary = trackedBills.map(bill => 
-        `• ${bill.bill_number}: ${bill.title}\n  Status: ${bill.status.replace(/_/g, ' ')}\n  Sponsor: ${bill.sponsor}\n`
-      ).join('\n');
+      const billSummary = trackedBills
+        .map(
+          (bill) =>
+            `• ${bill.bill_number}: ${bill.title}\n  Status: ${bill.status.replace(/_/g, " ")}\n  Sponsor: ${bill.sponsor}\n`,
+        )
+        .join("\n");
 
       const emailContent = `Dear Client,
 
@@ -82,14 +87,14 @@ Your Legislative Team`;
           await base44.integrations.Core.SendEmail({
             to: email,
             subject: `Legislative Update: ${trackedBills.length} Tracked Bills`,
-            body: emailContent
+            body: emailContent,
           });
           successCount++;
         } catch (error) {
           console.error(`Failed to send to ${email}:`, error);
         }
       }
-      
+
       setSentCount(successCount);
     } catch (error) {
       console.error("Error sending emails:", error);
@@ -108,10 +113,12 @@ Your Legislative Team`;
             </div>
             <div>
               <h1 className="text-3xl font-bold text-slate-900">Email Lists</h1>
-              <p className="text-slate-600 mt-1">Manage client groups and send bill updates</p>
+              <p className="text-slate-600 mt-1">
+                Manage client groups and send bill updates
+              </p>
             </div>
           </div>
-          <Button 
+          <Button
             onClick={() => setShowCreateModal(true)}
             className="bg-blue-600 hover:bg-blue-700"
           >
@@ -126,8 +133,12 @@ Your Legislative Team`;
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-slate-600 text-sm font-medium">Email Lists</p>
-                  <p className="text-3xl font-bold text-slate-900 mt-1">{emailLists.length}</p>
+                  <p className="text-slate-600 text-sm font-medium">
+                    Email Lists
+                  </p>
+                  <p className="text-3xl font-bold text-slate-900 mt-1">
+                    {emailLists.length}
+                  </p>
                 </div>
                 <Users className="w-8 h-8 text-blue-500" />
               </div>
@@ -138,9 +149,14 @@ Your Legislative Team`;
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-slate-600 text-sm font-medium">Total Contacts</p>
+                  <p className="text-slate-600 text-sm font-medium">
+                    Total Contacts
+                  </p>
                   <p className="text-3xl font-bold text-slate-900 mt-1">
-                    {emailLists.reduce((sum, list) => sum + list.email_addresses.length, 0)}
+                    {emailLists.reduce(
+                      (sum, list) => sum + list.email_addresses.length,
+                      0,
+                    )}
                   </p>
                 </div>
                 <Mail className="w-8 h-8 text-green-500" />
@@ -152,8 +168,12 @@ Your Legislative Team`;
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-slate-600 text-sm font-medium">Tracked Bills</p>
-                  <p className="text-3xl font-bold text-slate-900 mt-1">{trackedBills.length}</p>
+                  <p className="text-slate-600 text-sm font-medium">
+                    Tracked Bills
+                  </p>
+                  <p className="text-3xl font-bold text-slate-900 mt-1">
+                    {trackedBills.length}
+                  </p>
                 </div>
                 <CheckCircle className="w-8 h-8 text-purple-500" />
               </div>
@@ -175,7 +195,9 @@ Your Legislative Team`;
                   <div className="flex items-start justify-between">
                     <div>
                       <CardTitle className="text-lg">{list.name}</CardTitle>
-                      <p className="text-sm text-slate-500 mt-1">{list.description}</p>
+                      <p className="text-sm text-slate-500 mt-1">
+                        {list.description}
+                      </p>
                     </div>
                     <div className="flex gap-2">
                       <Button
@@ -200,18 +222,23 @@ Your Legislative Team`;
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <Badge variant="outline" className="flex items-center gap-1">
+                    <Badge
+                      variant="outline"
+                      className="flex items-center gap-1"
+                    >
                       <Users className="w-3 h-3" />
                       {list.email_addresses.length} contacts
                     </Badge>
-                    <Badge 
+                    <Badge
                       variant={list.is_active ? "default" : "secondary"}
-                      className={list.is_active ? "bg-green-100 text-green-800" : ""}
+                      className={
+                        list.is_active ? "bg-green-100 text-green-800" : ""
+                      }
                     >
                       {list.is_active ? "Active" : "Inactive"}
                     </Badge>
                   </div>
-                  
+
                   <Button
                     onClick={() => sendBillUpdate(list.id)}
                     disabled={isSending || trackedBills.length === 0}
@@ -243,9 +270,16 @@ Your Legislative Team`;
           ) : (
             <div className="col-span-full text-center py-12">
               <Mail className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">No email lists yet</h3>
-              <p className="text-slate-600 mb-4">Create your first email list to start sending bill updates.</p>
-              <Button onClick={() => setShowCreateModal(true)} className="bg-blue-600 hover:bg-blue-700">
+              <h3 className="text-xl font-semibold text-slate-900 mb-2">
+                No email lists yet
+              </h3>
+              <p className="text-slate-600 mb-4">
+                Create your first email list to start sending bill updates.
+              </p>
+              <Button
+                onClick={() => setShowCreateModal(true)}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
                 <Plus className="w-4 h-4 mr-2" />
                 Create Your First List
               </Button>
@@ -273,7 +307,7 @@ function EmailListModal({ isOpen, onClose, editingList, onSave }) {
     name: "",
     description: "",
     email_addresses: [],
-    is_active: true
+    is_active: true,
   });
   const [emailInput, setEmailInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -286,25 +320,28 @@ function EmailListModal({ isOpen, onClose, editingList, onSave }) {
         name: "",
         description: "",
         email_addresses: [],
-        is_active: true
+        is_active: true,
       });
     }
   }, [editingList]);
 
   const handleAddEmail = () => {
-    if (emailInput.trim() && !formData.email_addresses.includes(emailInput.trim())) {
-      setFormData(prev => ({
+    if (
+      emailInput.trim() &&
+      !formData.email_addresses.includes(emailInput.trim())
+    ) {
+      setFormData((prev) => ({
         ...prev,
-        email_addresses: [...prev.email_addresses, emailInput.trim()]
+        email_addresses: [...prev.email_addresses, emailInput.trim()],
       }));
       setEmailInput("");
     }
   };
 
   const handleRemoveEmail = (email) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      email_addresses: prev.email_addresses.filter(e => e !== email)
+      email_addresses: prev.email_addresses.filter((e) => e !== email),
     }));
   };
 
@@ -341,7 +378,9 @@ function EmailListModal({ isOpen, onClose, editingList, onSave }) {
             <Input
               id="name"
               value={formData.name}
-              onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, name: e.target.value }))
+              }
               required
             />
           </div>
@@ -351,7 +390,12 @@ function EmailListModal({ isOpen, onClose, editingList, onSave }) {
             <Textarea
               id="description"
               value={formData.description}
-              onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  description: e.target.value,
+                }))
+              }
               placeholder="Brief description of this email list"
             />
           </div>
@@ -363,7 +407,9 @@ function EmailListModal({ isOpen, onClose, editingList, onSave }) {
                 placeholder="Enter email address"
                 value={emailInput}
                 onChange={(e) => setEmailInput(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddEmail())}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && (e.preventDefault(), handleAddEmail())
+                }
               />
               <Button type="button" onClick={handleAddEmail} variant="outline">
                 <Plus className="w-4 h-4" />
@@ -372,7 +418,10 @@ function EmailListModal({ isOpen, onClose, editingList, onSave }) {
             {formData.email_addresses.length > 0 && (
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 {formData.email_addresses.map((email, index) => (
-                  <div key={index} className="flex items-center justify-between p-2 bg-slate-50 rounded">
+                  <div
+                    key={index}
+                    className="flex items-center justify-between p-2 bg-slate-50 rounded"
+                  >
                     <span className="text-sm">{email}</span>
                     <Button
                       type="button"
@@ -395,10 +444,18 @@ function EmailListModal({ isOpen, onClose, editingList, onSave }) {
             </Button>
             <Button
               type="submit"
-              disabled={isSubmitting || !formData.name || formData.email_addresses.length === 0}
+              disabled={
+                isSubmitting ||
+                !formData.name ||
+                formData.email_addresses.length === 0
+              }
               className="bg-blue-600 hover:bg-blue-700"
             >
-              {isSubmitting ? "Saving..." : (editingList ? "Update List" : "Create List")}
+              {isSubmitting
+                ? "Saving..."
+                : editingList
+                  ? "Update List"
+                  : "Create List"}
             </Button>
           </div>
         </form>

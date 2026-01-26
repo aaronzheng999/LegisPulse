@@ -6,18 +6,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Settings as SettingsIcon, 
-  Bell, 
-  Twitter, 
+import {
+  Settings as SettingsIcon,
+  Bell,
+  X,
   Mail,
   Smartphone,
   Save,
-  CheckCircle
+  CheckCircle,
 } from "lucide-react";
 
 export default function Settings() {
-  const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -29,8 +28,8 @@ export default function Settings() {
     notification_preferences: {
       email_updates: true,
       bill_status_changes: true,
-      new_bills: true
-    }
+      new_bills: true,
+    },
   });
 
   useEffect(() => {
@@ -41,17 +40,19 @@ export default function Settings() {
     setIsLoading(true);
     try {
       const userData = await base44.auth.me();
-      setUser(userData);
       setFormData({
-        twitter_notifications_enabled: userData.twitter_notifications_enabled ?? true,
-        phone_notifications_enabled: userData.phone_notifications_enabled ?? true,
-        email_notifications_enabled: userData.email_notifications_enabled ?? true,
+        twitter_notifications_enabled:
+          userData.twitter_notifications_enabled ?? true,
+        phone_notifications_enabled:
+          userData.phone_notifications_enabled ?? true,
+        email_notifications_enabled:
+          userData.email_notifications_enabled ?? true,
         notification_phone: userData.notification_phone || "",
         notification_preferences: userData.notification_preferences || {
           email_updates: true,
           bill_status_changes: true,
-          new_bills: true
-        }
+          new_bills: true,
+        },
       });
     } catch (error) {
       console.error("Error loading user data:", error);
@@ -91,7 +92,9 @@ export default function Settings() {
             <SettingsIcon className="w-6 h-6 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold text-slate-900">Notification Settings</h1>
+            <h1 className="text-3xl font-bold text-slate-900">
+              Notification Settings
+            </h1>
             <p className="text-slate-600 mt-1">
               Manage how you receive updates about tracked bills
             </p>
@@ -104,7 +107,9 @@ export default function Settings() {
             <CardContent className="p-4">
               <div className="flex items-center gap-2 text-green-800">
                 <CheckCircle className="w-5 h-5" />
-                <span className="font-medium">Settings saved successfully!</span>
+                <span className="font-medium">
+                  Settings saved successfully!
+                </span>
               </div>
             </CardContent>
           </Card>
@@ -114,33 +119,46 @@ export default function Settings() {
         <Card>
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2">
-              <Twitter className="w-5 h-5 text-blue-500" />
+              <X className="w-5 h-5 text-blue-500" />
               Twitter/X Feed Notifications
             </CardTitle>
           </CardHeader>
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex-1">
-                <Label htmlFor="twitter_notifications" className="text-base font-semibold">
+                <Label
+                  htmlFor="twitter_notifications"
+                  className="text-base font-semibold"
+                >
                   Enable Twitter Mentions
                 </Label>
                 <p className="text-sm text-slate-600 mt-1">
-                  Get notified when your tracked bills are mentioned on official GA Legislature Twitter accounts
+                  Get notified when your tracked bills are mentioned on official
+                  GA Legislature Twitter accounts
                 </p>
               </div>
               <Switch
                 id="twitter_notifications"
                 checked={formData.twitter_notifications_enabled}
                 onCheckedChange={(checked) =>
-                  setFormData(prev => ({ ...prev, twitter_notifications_enabled: checked }))
+                  setFormData((prev) => ({
+                    ...prev,
+                    twitter_notifications_enabled: checked,
+                  }))
                 }
               />
             </div>
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="text-sm text-blue-900 font-medium mb-2">Monitored Accounts:</p>
+              <p className="text-sm text-blue-900 font-medium mb-2">
+                Monitored Accounts:
+              </p>
               <div className="flex gap-2">
-                <Badge variant="outline" className="bg-white">@GeorgiaHouseofReps</Badge>
-                <Badge variant="outline" className="bg-white">@Georgia_Senate</Badge>
+                <Badge variant="outline" className="bg-white">
+                  @GeorgiaHouseofReps
+                </Badge>
+                <Badge variant="outline" className="bg-white">
+                  @Georgia_Senate
+                </Badge>
               </div>
             </div>
           </CardContent>
@@ -157,22 +175,29 @@ export default function Settings() {
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex-1">
-                <Label htmlFor="phone_notifications" className="text-base font-semibold">
+                <Label
+                  htmlFor="phone_notifications"
+                  className="text-base font-semibold"
+                >
                   Enable Phone Alerts
                 </Label>
                 <p className="text-sm text-slate-600 mt-1">
-                  Receive SMS or push notifications on your phone for important updates
+                  Receive SMS or push notifications on your phone for important
+                  updates
                 </p>
               </div>
               <Switch
                 id="phone_notifications"
                 checked={formData.phone_notifications_enabled}
                 onCheckedChange={(checked) =>
-                  setFormData(prev => ({ ...prev, phone_notifications_enabled: checked }))
+                  setFormData((prev) => ({
+                    ...prev,
+                    phone_notifications_enabled: checked,
+                  }))
                 }
               />
             </div>
-            
+
             {formData.phone_notifications_enabled && (
               <div className="space-y-2 pt-4 border-t">
                 <Label htmlFor="notification_phone">Phone Number</Label>
@@ -182,7 +207,10 @@ export default function Settings() {
                   placeholder="+1 (555) 123-4567"
                   value={formData.notification_phone}
                   onChange={(e) =>
-                    setFormData(prev => ({ ...prev, notification_phone: e.target.value }))
+                    setFormData((prev) => ({
+                      ...prev,
+                      notification_phone: e.target.value,
+                    }))
                   }
                 />
                 <p className="text-xs text-slate-500">
@@ -204,7 +232,10 @@ export default function Settings() {
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex-1">
-                <Label htmlFor="email_notifications" className="text-base font-semibold">
+                <Label
+                  htmlFor="email_notifications"
+                  className="text-base font-semibold"
+                >
                   Enable Email Updates
                 </Label>
                 <p className="text-sm text-slate-600 mt-1">
@@ -215,32 +246,39 @@ export default function Settings() {
                 id="email_notifications"
                 checked={formData.email_notifications_enabled}
                 onCheckedChange={(checked) =>
-                  setFormData(prev => ({ ...prev, email_notifications_enabled: checked }))
+                  setFormData((prev) => ({
+                    ...prev,
+                    email_notifications_enabled: checked,
+                  }))
                 }
               />
             </div>
 
             {formData.email_notifications_enabled && (
               <div className="space-y-3 pt-4 border-t">
-                <p className="text-sm font-medium text-slate-700">Email Preferences:</p>
-                
+                <p className="text-sm font-medium text-slate-700">
+                  Email Preferences:
+                </p>
+
                 <div className="flex items-center justify-between">
                   <div>
                     <Label htmlFor="email_updates" className="font-normal">
                       Regular email updates
                     </Label>
-                    <p className="text-xs text-slate-500">Weekly digest of tracked bills</p>
+                    <p className="text-xs text-slate-500">
+                      Weekly digest of tracked bills
+                    </p>
                   </div>
                   <Switch
                     id="email_updates"
                     checked={formData.notification_preferences.email_updates}
                     onCheckedChange={(checked) =>
-                      setFormData(prev => ({
+                      setFormData((prev) => ({
                         ...prev,
                         notification_preferences: {
                           ...prev.notification_preferences,
-                          email_updates: checked
-                        }
+                          email_updates: checked,
+                        },
                       }))
                     }
                   />
@@ -248,21 +286,28 @@ export default function Settings() {
 
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label htmlFor="bill_status_changes" className="font-normal">
+                    <Label
+                      htmlFor="bill_status_changes"
+                      className="font-normal"
+                    >
                       Bill status changes
                     </Label>
-                    <p className="text-xs text-slate-500">When a tracked bill changes status</p>
+                    <p className="text-xs text-slate-500">
+                      When a tracked bill changes status
+                    </p>
                   </div>
                   <Switch
                     id="bill_status_changes"
-                    checked={formData.notification_preferences.bill_status_changes}
+                    checked={
+                      formData.notification_preferences.bill_status_changes
+                    }
                     onCheckedChange={(checked) =>
-                      setFormData(prev => ({
+                      setFormData((prev) => ({
                         ...prev,
                         notification_preferences: {
                           ...prev.notification_preferences,
-                          bill_status_changes: checked
-                        }
+                          bill_status_changes: checked,
+                        },
                       }))
                     }
                   />
@@ -273,18 +318,20 @@ export default function Settings() {
                     <Label htmlFor="new_bills" className="font-normal">
                       New bills matching interests
                     </Label>
-                    <p className="text-xs text-slate-500">When new relevant bills are filed</p>
+                    <p className="text-xs text-slate-500">
+                      When new relevant bills are filed
+                    </p>
                   </div>
                   <Switch
                     id="new_bills"
                     checked={formData.notification_preferences.new_bills}
                     onCheckedChange={(checked) =>
-                      setFormData(prev => ({
+                      setFormData((prev) => ({
                         ...prev,
                         notification_preferences: {
                           ...prev.notification_preferences,
-                          new_bills: checked
-                        }
+                          new_bills: checked,
+                        },
                       }))
                     }
                   />
@@ -323,12 +370,15 @@ export default function Settings() {
               <div className="text-sm text-slate-700 space-y-2">
                 <p className="font-medium">About Notifications</p>
                 <p>
-                  Our notification system keeps you informed about your tracked bills across multiple channels. 
-                  You can customize exactly what notifications you want to receive and how you want to receive them.
+                  Our notification system keeps you informed about your tracked
+                  bills across multiple channels. You can customize exactly what
+                  notifications you want to receive and how you want to receive
+                  them.
                 </p>
                 <p className="text-xs text-slate-600 mt-3">
-                  Note: Phone notifications require backend functions to be enabled. 
-                  Contact support to set up SMS/push notification delivery.
+                  Note: Phone notifications require backend functions to be
+                  enabled. Contact support to set up SMS/push notification
+                  delivery.
                 </p>
               </div>
             </div>
