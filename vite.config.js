@@ -5,6 +5,9 @@ import { defineConfig } from "vite";
 export default defineConfig({
   logLevel: "error", // Suppress warnings, only show errors
   plugins: [react()],
+  server: {
+    port: 3000,
+  },
   resolve: {
     alias: {
       "@": "/src",
