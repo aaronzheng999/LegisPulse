@@ -50,13 +50,42 @@ export default function Dashboard() {
     let filtered = bills;
 
     if (filters.search) {
-      const search = filters.search.toLowerCase();
-      filtered = filtered.filter(
-        (bill) =>
-          bill.bill_number.toLowerCase().includes(search) ||
-          bill.title.toLowerCase().includes(search) ||
-          bill.sponsor?.toLowerCase().includes(search),
-      );
+      const normalize = (value) =>
+        String(value || "")
+          .toLowerCase()
+          .normalize("NFKD")
+          .replace(/\p{Diacritic}/gu, "")
+          .replace(/[^a-z0-9]+/g, " ")
+          .trim();
+
+      const searchTokens = normalize(filters.search)
+        .split(/\s+/)
+        .filter(Boolean);
+
+      filtered = filtered.filter((bill) => {
+        const searchable = normalize(
+          [
+            bill.bill_number,
+            bill.title,
+            bill.sponsor,
+            bill.summary,
+            bill.current_committee,
+            bill.last_action,
+            bill.lc_number,
+            bill.status,
+            bill.bill_type,
+            bill.chamber,
+            bill.session_year,
+          ].join(" "),
+        );
+        const searchableCompact = searchable.replace(/\s+/g, "");
+
+        return searchTokens.every(
+          (token) =>
+            searchable.includes(token) ||
+            searchableCompact.includes(token.replace(/\s+/g, "")),
+        );
+      });
     }
 
     if (filters.chamber) {
