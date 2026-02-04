@@ -6,11 +6,13 @@ This project tracks Georgia legislative bills using the LegiScan API.
 
 1. Install dependencies: `npm install`
 2. Get a LegiScan API key from https://legiscan.com/legiscan
-3. Create `.env.local` and add:
+3. Create `.env` and add:
    ```
    VITE_LEGISCAN_API_KEY=your_api_key_here
    ```
 4. Start dev server: `npm run dev`
+
+> Tip: If you prefer keeping secrets out of git, use `.env.local` instead and keep it untracked.
 
 ### Features
 
