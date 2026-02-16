@@ -7,17 +7,72 @@ const LEGISCAN_BASE_URL = "https://api.legiscan.com/";
 // Georgia state ID in LegiScan
 const GA_STATE_ID = 11;
 
+const isLikelyPdfUrl = (url) => {
+  if (!url) return false;
+  const normalized = String(url).toLowerCase();
+  return normalized.includes(".pdf");
+};
+
+const isPdfMime = (mime) => {
+  if (!mime) return false;
+  return String(mime).toLowerCase().includes("pdf");
+};
+
 /**
- * Fetch a direct PDF/state link for a bill by calling getBill
- * and using the first text entry's state_link/url.
+ * Fetch a direct PDF/text link for a bill.
+ * Uses getBill to enumerate text versions, then getBillText for the newest
+ * text first so we can prefer a direct PDF link when available.
  */
 export async function fetchBillPDFLink(legiscanBillId) {
   if (!legiscanBillId) return null;
+
   const data = await legiscanRequest("getBill", { id: legiscanBillId });
-  const texts = data.bill?.texts || [];
-  if (!texts.length) return data.bill?.state_link || data.bill?.url || null;
-  const preferred = texts[0];
-  return preferred.state_link || preferred.url || null;
+  const bill = data.bill || {};
+  const texts = Array.isArray(bill.texts) ? [...bill.texts] : [];
+
+  // Prefer most recent text documents first.
+  texts.sort((a, b) => {
+    const dateA = new Date(a?.date || 0).getTime() || 0;
+    const dateB = new Date(b?.date || 0).getTime() || 0;
+    return dateB - dateA;
+  });
+
+  let fallbackTextLink = null;
+
+  for (const textItem of texts) {
+    const docId = textItem?.doc_id || textItem?.text_id || textItem?.id;
+
+    if (!docId) {
+      const direct = textItem?.state_link || textItem?.url || null;
+      if (direct && !fallbackTextLink) fallbackTextLink = direct;
+      if (isLikelyPdfUrl(direct) || isPdfMime(textItem?.mime)) {
+        return direct;
+      }
+      continue;
+    }
+
+    try {
+      const textResponse = await legiscanRequest("getBillText", { id: docId });
+      const text = textResponse.text || {};
+      const direct =
+        text.state_link ||
+        text.url ||
+        textItem?.state_link ||
+        textItem?.url ||
+        null;
+
+      if (direct && !fallbackTextLink) fallbackTextLink = direct;
+
+      if (isLikelyPdfUrl(direct) || isPdfMime(text.mime || textItem?.mime)) {
+        return direct;
+      }
+    } catch (error) {
+      // Continue trying older text records.
+      console.warn(`getBillText failed for doc ${docId}:`, error);
+    }
+  }
+
+  return fallbackTextLink || bill.state_link || bill.url || null;
 }
 
 /**

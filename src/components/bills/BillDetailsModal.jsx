@@ -23,6 +23,11 @@ import { format } from "date-fns";
 import { api as base44 } from "@/api/apiClient";
 import { fetchBillPDFLink } from "@/services/legiscan";
 
+const isLikelyPdfUrl = (url) => {
+  if (!url) return false;
+  return String(url).toLowerCase().includes(".pdf");
+};
+
 const getStatusColor = (status) => {
   const colors = {
     introduced: "bg-blue-100 text-blue-800 border-blue-200",
@@ -53,34 +58,49 @@ export default function BillDetailsModal({
   const [pdfStatus, setPdfStatus] = useState("idle");
 
   useEffect(() => {
+    if (!bill || !isOpen) return;
+
     const currentLink = bill?.pdf_url || bill?.url || null;
-    if (currentLink) {
+    const hasDirectPdf = isLikelyPdfUrl(currentLink);
+
+    if (currentLink && hasDirectPdf) {
       setPdfLink(currentLink);
       setPdfStatus("ready");
       return;
     }
 
-    // No link yet; attempt to fetch from LegiScan if possible
-    setPdfLink(null);
+    // No direct PDF yet; attempt to fetch from LegiScan getBillText.
+    if (currentLink) {
+      setPdfLink(currentLink);
+    } else {
+      setPdfLink(null);
+    }
     setPdfStatus("loading");
-    if (!bill || !isOpen) return;
 
     if (bill.legiscan_id) {
       fetchBillPDFLink(bill.legiscan_id)
-        .then((link) => {
+        .then(async (link) => {
           if (link) {
             setPdfLink(link);
             setPdfStatus("ready");
+
+            if (bill.id && link !== bill.pdf_url) {
+              try {
+                await base44.entities.Bill.update(bill.id, { pdf_url: link });
+              } catch (error) {
+                console.warn("Failed to cache resolved PDF URL", error);
+              }
+            }
           } else {
             setPdfStatus("notfound");
           }
         })
         .catch((err) => {
           console.error("Failed to fetch PDF link", err);
-          setPdfStatus("notfound");
+          setPdfStatus(currentLink ? "ready" : "notfound");
         });
     } else {
-      setPdfStatus("notfound");
+      setPdfStatus(currentLink ? "ready" : "notfound");
     }
   }, [bill, isOpen]);
 

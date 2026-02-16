@@ -46,7 +46,7 @@ export default function BillSyncButton({ onSyncComplete }) {
           last_action: bill.last_action,
           last_action_date: bill.last_action_date,
           url: bill.url,
-          pdf_url: bill.url,
+          pdf_url: null,
           is_tracked: false,
           tags: [],
         })),
