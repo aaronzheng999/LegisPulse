@@ -50,11 +50,25 @@ export default function Dashboard() {
     setIsLoading(true);
     try {
       const [billsData, userData] = await Promise.all([
-        base44.entities.Bill.list("-last_action_date"),
+        base44.entities.Bill.list(),
         base44.auth.me().catch(() => null),
       ]);
       // Fix any incorrect bill types
       const correctedBills = fixBillTypes(billsData);
+
+      // Sort by highest bill number first (descending order)
+      correctedBills.sort((a, b) => {
+        const numA = parseInt(
+          String(a.bill_number).replace(/\D/g, "") || "0",
+          10,
+        );
+        const numB = parseInt(
+          String(b.bill_number).replace(/\D/g, "") || "0",
+          10,
+        );
+        return numB - numA;
+      });
+
       setBills(correctedBills);
       setUser(userData);
       setTrackedBillIds(userData?.tracked_bill_ids || []);
