@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api as base44 } from "@/api/apiClient";
+import { api } from "@/api/apiClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { RefreshCw, Download, CheckCircle, AlertCircle } from "lucide-react";
@@ -32,8 +32,8 @@ export default function BillSyncButton({ onSyncComplete }) {
       const bills = await fetchGABills();
       setProgress((prev) => ({ ...prev, total: bills.length }));
 
-      await base44.entities.Bill.clearAll();
-      await base44.entities.Bill.replaceAll(
+      await api.entities.Bill.clearAll();
+      await api.entities.Bill.replaceAll(
         bills.map((bill) => ({
           legiscan_id: bill.legiscan_id,
           bill_number: bill.bill_number,

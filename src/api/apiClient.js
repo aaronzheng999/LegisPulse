@@ -320,6 +320,3 @@ export const api = {
     },
   },
 };
-
-// Export as base44 for backward compatibility during transition
-export const base44 = api;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { api as base44 } from "@/api/apiClient";
+import { api } from "@/api/apiClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,7 @@ export default function TwitterFeed({
   const loadTweets = async () => {
     setIsLoading(true);
     try {
-      const tweetsData = await base44.entities.Tweet.list("-posted_at", 50);
+      const tweetsData = await api.entities.Tweet.list("-posted_at", 50);
       setTweets(tweetsData);
     } catch (error) {
       console.error("Error loading tweets:", error);

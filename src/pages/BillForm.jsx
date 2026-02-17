@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState } from "react";
-import { api as base44 } from "@/api/apiClient";
+import { api } from "@/api/apiClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,7 +63,7 @@ export default function BillForm() {
     setIsSubmitting(true);
 
     try {
-      await base44.entities.Bill.create(billData);
+      await api.entities.Bill.create(billData);
       navigate(createPageUrl("Dashboard"));
     } catch (error) {
       console.error("Error creating bill:", error);

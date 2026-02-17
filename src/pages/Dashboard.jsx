@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { api as base44 } from "@/api/apiClient";
+import { api } from "@/api/apiClient";
 import { FileText, Globe } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import BillCard from "../components/bills/BillCard";
@@ -50,8 +50,8 @@ export default function Dashboard() {
     setIsLoading(true);
     try {
       const [billsData, userData] = await Promise.all([
-        base44.entities.Bill.list(),
-        base44.auth.me().catch(() => null),
+        api.entities.Bill.list(),
+        api.auth.me().catch(() => null),
       ]);
       // Fix any incorrect bill types
       const correctedBills = fixBillTypes(billsData);
@@ -225,7 +225,7 @@ export default function Dashboard() {
       : [...trackedBillIds, billId];
 
     setTrackedBillIds(newTrackedIds);
-    await base44.auth.updateMe({ tracked_bill_ids: newTrackedIds });
+    await api.auth.updateMe({ tracked_bill_ids: newTrackedIds });
 
     // Monitor tracked bill on Twitter
     if (!isCurrentlyTracked) {
@@ -236,7 +236,7 @@ export default function Dashboard() {
   const monitorBillOnTwitter = async (billNumber) => {
     try {
       // Search for recent tweets mentioning the bill
-      await base44.integrations.Core.InvokeLLM({
+      await api.integrations.Core.InvokeLLM({
         prompt: `Search Twitter/X for recent posts from @GeorgiaHouseofReps and @Georgia_Senate that mention "${billNumber}". 
         Look for any updates, votes, committee actions, or status changes related to this bill.
         Return the most relevant information about recent activity.`,
@@ -261,7 +261,7 @@ export default function Dashboard() {
       }).then(async (response) => {
         if (response.has_updates && response.updates?.length > 0) {
           // Create notification for user
-          await base44.entities.Notification.create({
+          await api.entities.Notification.create({
             user_id: user.id,
             notification_type: "bill_mention",
             title: `${billNumber} mentioned on Twitter`,

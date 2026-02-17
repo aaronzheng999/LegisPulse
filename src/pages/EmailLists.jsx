@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { api as base44 } from "@/api/apiClient";
+import { api } from "@/api/apiClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,9 +39,9 @@ export default function EmailLists() {
     setIsLoading(true);
     try {
       const [lists, user, bills] = await Promise.all([
-        base44.entities.EmailList.list("-created_date"),
-        base44.auth.me().catch(() => null),
-        base44.entities.Bill.list(),
+        api.entities.EmailList.list("-created_date"),
+        api.auth.me().catch(() => null),
+        api.entities.Bill.list(),
       ]);
 
       setEmailLists(lists);
@@ -66,7 +66,7 @@ export default function EmailLists() {
       const billSummary = trackedBills
         .map(
           (bill) =>
-            `â€¢ ${bill.bill_number}: ${bill.title}\n  Status: ${bill.status.replace(/_/g, " ")}\n  Sponsor: ${bill.sponsor}\n`,
+            `â€?${bill.bill_number}: ${bill.title}\n  Status: ${bill.status.replace(/_/g, " ")}\n  Sponsor: ${bill.sponsor}\n`,
         )
         .join("\n");
 
@@ -84,7 +84,7 @@ Your Legislative Team`;
       let successCount = 0;
       for (const email of emailList.email_addresses) {
         try {
-          await base44.integrations.Core.SendEmail({
+          await api.integrations.Core.SendEmail({
             to: email,
             subject: `Legislative Update: ${trackedBills.length} Tracked Bills`,
             body: emailContent,
@@ -211,7 +211,7 @@ Your Legislative Team`;
                         variant="ghost"
                         size="icon"
                         onClick={async () => {
-                          await base44.entities.EmailList.delete(list.id);
+                          await api.entities.EmailList.delete(list.id);
                           loadData();
                         }}
                       >
@@ -260,7 +260,7 @@ Your Legislative Team`;
                   {sentCount > 0 && (
                     <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
                       <p className="text-sm text-emerald-800">
-                        âœ“ Successfully sent to {sentCount} recipients
+                        âœ?Successfully sent to {sentCount} recipients
                       </p>
                     </div>
                   )}
@@ -351,9 +351,9 @@ function EmailListModal({ isOpen, onClose, editingList, onSave }) {
 
     try {
       if (editingList) {
-        await base44.entities.EmailList.update(editingList.id, formData);
+        await api.entities.EmailList.update(editingList.id, formData);
       } else {
-        await base44.entities.EmailList.create(formData);
+        await api.entities.EmailList.create(formData);
       }
       onSave();
       onClose();

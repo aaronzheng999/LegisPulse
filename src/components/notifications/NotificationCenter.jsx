@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { api as base44 } from "@/api/apiClient";
+import { api } from "@/api/apiClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ export default function NotificationCenter({ userId, onClose }) {
   const loadNotifications = async () => {
     setIsLoading(true);
     try {
-      const notifs = await base44.entities.Notification.filter(
+      const notifs = await api.entities.Notification.filter(
         { user_id: userId },
         "-created_date",
         50,
@@ -43,7 +43,7 @@ export default function NotificationCenter({ userId, onClose }) {
 
   const markAsRead = async (notificationId) => {
     try {
-      await base44.entities.Notification.update(notificationId, {
+      await api.entities.Notification.update(notificationId, {
         is_read: true,
       });
       setNotifications((prev) =>
@@ -63,7 +63,7 @@ export default function NotificationCenter({ userId, onClose }) {
         .filter((n) => !n.is_read)
         .map((n) => n.id);
       for (const id of unreadIds) {
-        await base44.entities.Notification.update(id, { is_read: true });
+        await api.entities.Notification.update(id, { is_read: true });
       }
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
       setUnreadCount(0);
@@ -74,7 +74,7 @@ export default function NotificationCenter({ userId, onClose }) {
 
   const deleteNotification = async (notificationId) => {
     try {
-      await base44.entities.Notification.delete(notificationId);
+      await api.entities.Notification.delete(notificationId);
       setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
     } catch (error) {
       console.error("Error deleting notification:", error);

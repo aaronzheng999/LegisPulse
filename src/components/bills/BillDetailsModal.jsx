@@ -20,7 +20,7 @@ import {
   BookOpen,
 } from "lucide-react";
 import { format } from "date-fns";
-import { api as base44 } from "@/api/apiClient";
+import { api } from "@/api/apiClient";
 import { fetchBillPDFLink, fetchBillTextForAI } from "@/services/legiscan";
 
 const isLikelyPdfUrl = (url) => {
@@ -209,7 +209,7 @@ export default function BillDetailsModal({
               }
 
               try {
-                const updatedBill = await base44.entities.Bill.update(bill.id, {
+                const updatedBill = await api.entities.Bill.update(bill.id, {
                   pdf_url: link,
                   sponsor: primarySponsor,
                   sponsors: sponsorNames,
@@ -308,7 +308,7 @@ export default function BillDetailsModal({
     - If the bill references other Code sections, briefly explain what those references mean.
     - Do NOT restate current law in what_does_this_do.`;
 
-      const response = await base44.integrations.Core.InvokeLLM({
+      const response = await api.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
@@ -359,7 +359,7 @@ export default function BillDetailsModal({
         const summaryText = normalizedSummary.short_summary;
         const changesText = normalizedSummary.what_does_this_do;
 
-        const updatedBill = await base44.entities.Bill.update(bill.id, {
+        const updatedBill = await api.entities.Bill.update(bill.id, {
           summary: summaryText,
           changes_analysis: changesText,
         });
@@ -396,7 +396,7 @@ export default function BillDetailsModal({
               <div>
                 <h2 className="text-xl font-bold">{bill.bill_number}</h2>
                 <p className="text-sm text-slate-500 font-normal">
-                  {bill.chamber === "house" ? "House" : "Senate"} • Session{" "}
+                  {bill.chamber === "house" ? "House" : "Senate"} | Session{" "}
                   {bill.session_year}
                 </p>
               </div>

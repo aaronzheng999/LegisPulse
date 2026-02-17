@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { api as base44 } from "@/api/apiClient";
+import { api } from "@/api/apiClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,7 @@ export default function Settings() {
   const loadUserData = async () => {
     setIsLoading(true);
     try {
-      const userData = await base44.auth.me();
+      const userData = await api.auth.me();
       setFormData({
         twitter_notifications_enabled:
           userData.twitter_notifications_enabled ?? true,
@@ -63,7 +63,7 @@ export default function Settings() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await base44.auth.updateMe(formData);
+      await api.auth.updateMe(formData);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (error) {

@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from "react";
-import { api as base44 } from "@/api/apiClient";
+import { api } from "@/api/apiClient";
 
 const AuthContext = createContext(null);
 
@@ -19,7 +19,7 @@ export const AuthProvider = ({ children }) => {
     try {
       // Now check if the user is authenticated
       setIsLoadingAuth(true);
-      const currentUser = await base44.auth.me();
+      const currentUser = await api.auth.me();
       setUser(currentUser);
       setIsAuthenticated(true);
       setIsLoadingAuth(false);
@@ -39,7 +39,7 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
     setIsAuthenticated(false);
 
-    base44.auth.logout();
+    api.auth.logout();
     if (shouldRedirect && typeof window !== "undefined") {
       window.location.href = "/";
     }
