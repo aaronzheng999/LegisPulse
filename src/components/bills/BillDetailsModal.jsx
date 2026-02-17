@@ -285,58 +285,59 @@ export default function BillDetailsModal({
         30000,
       );
 
-      const prompt = `Analyze Georgia legislative bill ${bill.bill_number} titled "${bill.title}".
+      const prompt = `You are analyzing Georgia legislative bill ${bill.bill_number} titled "${bill.title}".
 
-This bill affects OCGA sections: ${ocgaSections}
+    This bill affects OCGA sections: ${ocgaSections}
 
-Bill text and context:
-${aiContext || "Text not available from source."}
+    Bill text and context:
+    ${aiContext || "Text not available from source."}
 
-Please provide:
-1. A high school level summary explaining what this bill does in simple terms
-2. What specific changes it makes to Georgia law
-3. Who would be affected by these changes
-4. The practical impact on citizens, businesses, or government
+    Return ONLY valid JSON with exactly these two string fields:
+    {
+      "short_summary": "...",
+      "what_does_this_do": "..."
+    }
 
-Keep the language accessible and explain any legal terms. Focus on real-world implications.`;
+    Requirements:
+    - short_summary: 2-3 sentences max, simple 7th-grade language, only what the bill changes.
+    - what_does_this_do: detailed paragraph section (no bullet points), simple 7th-grade language.
+    - Do NOT include subheadings inside what_does_this_do.
+    - Include all specific numbers, dates, deadlines, percentages, dollar amounts, mile limits, time limits, and penalties exactly as written in the bill text.
+    - Clearly explain what is new, added, removed, or changed in the law.
+    - Focus only on what the bill changes; no background explanation unless necessary.
+    - If the bill references other Code sections, briefly explain what those references mean.
+    - Do NOT restate current law in what_does_this_do.`;
 
       const response = await base44.integrations.Core.InvokeLLM({
         prompt,
         response_json_schema: {
           type: "object",
           properties: {
-            plain_language_summary: { type: "string" },
-            law_changes: { type: "string" },
-            affected_parties: { type: "string" },
-            practical_impact: { type: "string" },
+            short_summary: { type: "string" },
+            what_does_this_do: { type: "string" },
           },
+          required: ["short_summary", "what_does_this_do"],
         },
       });
 
       const normalizedSummary = {
-        plain_language_summary: pickSectionText(response, [
-          "plain_language_summary",
+        short_summary: pickSectionText(response, [
+          "short_summary",
           "summary",
           "plain_summary",
+          "plain_language_summary",
+          "brief_summary",
           "overview",
         ]),
-        law_changes: pickSectionText(response, [
+        what_does_this_do: pickSectionText(response, [
+          "what_does_this_do",
+          "detailed_summary",
+          "details",
+          "long_summary",
           "law_changes",
           "changes",
-          "legal_changes",
-          "statutory_changes",
-        ]),
-        affected_parties: pickSectionText(response, [
-          "affected_parties",
-          "who_is_affected",
-          "impacted_groups",
-          "affected",
-        ]),
-        practical_impact: pickSectionText(response, [
           "practical_impact",
           "impact",
-          "real_world_impact",
-          "practical_effects",
         ]),
       };
 
@@ -344,7 +345,7 @@ Keep the language accessible and explain any legal terms. Focus on real-world im
       if (!hasAnySection) {
         const fallback = formatAiText(response);
         if (fallback) {
-          normalizedSummary.plain_language_summary = fallback;
+          normalizedSummary.short_summary = fallback;
         } else {
           throw new Error(
             "AI returned an empty summary. Please click Regenerate Summary.",
@@ -355,14 +356,8 @@ Keep the language accessible and explain any legal terms. Focus on real-world im
       setGeneratedSummary(normalizedSummary);
 
       if (bill?.id) {
-        const summaryText = normalizedSummary.plain_language_summary;
-        const changesText = [
-          normalizedSummary.law_changes,
-          normalizedSummary.affected_parties,
-          normalizedSummary.practical_impact,
-        ]
-          .filter(Boolean)
-          .join("\n\n");
+        const summaryText = normalizedSummary.short_summary;
+        const changesText = normalizedSummary.what_does_this_do;
 
         const updatedBill = await base44.entities.Bill.update(bill.id, {
           summary: summaryText,
@@ -562,11 +557,16 @@ Keep the language accessible and explain any legal terms. Focus on real-world im
               )}
               {safeBillSummary ? (
                 <div className="prose prose-slate max-w-none">
-                  <p className="whitespace-pre-line">{safeBillSummary}</p>
+                  <div>
+                    <h4 className="font-semibold text-slate-900 mb-2">
+                      Short Summary:
+                    </h4>
+                    <p className="whitespace-pre-line">{safeBillSummary}</p>
+                  </div>
                   {safeBillChanges && (
                     <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                       <h4 className="font-semibold text-blue-900 mb-2">
-                        Changes Analysis:
+                        What does this do:
                       </h4>
                       <p className="text-blue-800 whitespace-pre-line">
                         {safeBillChanges}
@@ -578,34 +578,18 @@ Keep the language accessible and explain any legal terms. Focus on real-world im
                 <div className="space-y-4">
                   <div>
                     <h4 className="font-semibold text-slate-900 mb-2">
-                      Plain Language Summary:
+                      Short Summary:
                     </h4>
                     <p className="text-slate-700 whitespace-pre-line">
-                      {generatedSummary.plain_language_summary}
+                      {generatedSummary.short_summary}
                     </p>
                   </div>
                   <div>
                     <h4 className="font-semibold text-slate-900 mb-2">
-                      Law Changes:
+                      What does this do:
                     </h4>
                     <p className="text-slate-700 whitespace-pre-line">
-                      {generatedSummary.law_changes}
-                    </p>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-slate-900 mb-2">
-                      Affected Parties:
-                    </h4>
-                    <p className="text-slate-700 whitespace-pre-line">
-                      {generatedSummary.affected_parties}
-                    </p>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-slate-900 mb-2">
-                      Practical Impact:
-                    </h4>
-                    <p className="text-slate-700 whitespace-pre-line">
-                      {generatedSummary.practical_impact}
+                      {generatedSummary.what_does_this_do}
                     </p>
                   </div>
                 </div>
