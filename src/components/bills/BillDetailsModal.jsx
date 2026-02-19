@@ -299,14 +299,20 @@ export default function BillDetailsModal({
     }
 
     Requirements:
-    - short_summary: 2-3 sentences max, simple 7th-grade language, only what the bill changes.
-    - what_does_this_do: detailed paragraph section (no bullet points), simple 7th-grade language.
-    - Do NOT include subheadings inside what_does_this_do.
-    - Include all specific numbers, dates, deadlines, percentages, dollar amounts, mile limits, time limits, and penalties exactly as written in the bill text.
-    - Clearly explain what is new, added, removed, or changed in the law.
-    - Focus only on what the bill changes; no background explanation unless necessary.
-    - If the bill references other Code sections, briefly explain what those references mean.
-    - Do NOT restate current law in what_does_this_do.`;
+    - short_summary: make one to two sentence in 7th grade language summarizing only the substantive changes the bill makes to current law.
+    - what_does_this_do: 
+    Requirements:
+    - Summarize only the substantive changes the bill makes to current law.
+    - Use clear, neutral, legislative language suitable for caucus memos.
+    - Do not include policy arguments or analysis.
+    - Organize the summary in a logical structure based on the content of the bill.
+    - Use bullet points when helpful.
+    - If the bill creates or modifies an offense, clearly outline: Who it applies to; What conduct is prohibited; Penalties (fine ranges, jail/prison ranges, minimums and maximums); Any sentence limitations (probation, suspension, merger rules, etc.)
+    - If the bill changes funding, taxes, or fees, clearly outline: Revenue source; Amounts or caps; Distribution formula; Effective dates
+    - If the bill changes administrative or procedural law, clearly outline: Agency responsibilities; Reporting requirements; Deadlines; Enforcement mechanisms
+    - If the bill includes presumptions, burden of proof standards, hardship provisions, or exceptions, include those.
+    - Maintain accuracy and track closely to the bill text.
+    - Be detailed but concise.`;
 
       const response = await api.integrations.Core.InvokeLLM({
         prompt,
