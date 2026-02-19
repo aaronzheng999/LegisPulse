@@ -261,36 +261,33 @@ export default function BillDetailsModal({
     try {
       const ocgaSections =
         bill.ocga_sections_affected?.join(", ") || "various sections";
-      let billTextContext = "";
-
-      if (bill.legiscan_id) {
-        try {
-          billTextContext = await fetchBillTextForAI(bill.legiscan_id);
-        } catch (error) {
-          console.warn("Unable to fetch bill text for AI context", error);
-        }
+      if (!bill.legiscan_id) {
+        throw new Error(
+          "Bill text is not available for this item, so AI summary cannot be generated.",
+        );
       }
 
-      const fallbackContext = [
-        bill.title,
-        bill.summary,
-        bill.last_action,
-        bill.status,
-      ]
-        .filter(Boolean)
-        .join("\n\n");
+      let billTextContext = "";
+      try {
+        billTextContext = await fetchBillTextForAI(bill.legiscan_id);
+      } catch (error) {
+        console.warn("Unable to fetch bill text for AI context", error);
+      }
 
-      const aiContext = (billTextContext || fallbackContext || "").slice(
-        0,
-        30000,
-      );
+      if (!billTextContext) {
+        throw new Error(
+          "Bill text is not available from LegiScan for this bill. AI summary was not generated.",
+        );
+      }
+
+      const aiContext = billTextContext.slice(0, 30000);
 
       const prompt = `You are analyzing Georgia legislative bill ${bill.bill_number} titled "${bill.title}".
 
     This bill affects OCGA sections: ${ocgaSections}
 
     Bill text and context:
-    ${aiContext || "Text not available from source."}
+    ${aiContext}
 
     Return ONLY valid JSON with exactly these two string fields:
     {
@@ -299,9 +296,8 @@ export default function BillDetailsModal({
     }
 
     Requirements:
-    - short_summary: make one to two sentence in 7th grade language summarizing only the substantive changes the bill makes to current law.
-    - what_does_this_do: 
-    Requirements:
+    for short_summary: make one to two sentence in 7th grade language summarizing only the substantive changes the bill makes to current law.
+    for what_does_this_do: 
     - Summarize only the substantive changes the bill makes to current law.
     - Use clear, neutral, legislative language suitable for caucus memos.
     - Do not include policy arguments or analysis.

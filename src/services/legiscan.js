@@ -204,13 +204,8 @@ export async function fetchBillTextForAI(legiscanBillId) {
     }
   }
 
-  // Fallbacks if text payload is unavailable
-  const fallback = [bill.title, bill.description, bill.status_desc]
-    .filter(Boolean)
-    .join("\n\n")
-    .trim();
-
-  return fallback;
+  // No bill text available from getBillText payloads.
+  return "";
 }
 
 /**
