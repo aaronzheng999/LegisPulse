@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from "@/api/apiClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@/components/ui/select.jsx";
 import { ArrowLeft, Save, Plus, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -63,7 +63,7 @@ export default function BillForm() {
     setIsSubmitting(true);
 
     try {
-      await base44.entities.Bill.create(billData);
+      await api.entities.Bill.create(billData);
       navigate(createPageUrl("Dashboard"));
     } catch (error) {
       console.error("Error creating bill:", error);
@@ -144,9 +144,6 @@ export default function BillForm() {
                     <SelectContent>
                       <SelectItem value="bill">Bill</SelectItem>
                       <SelectItem value="resolution">Resolution</SelectItem>
-                      <SelectItem value="constitutional_amendment">
-                        Constitutional Amendment
-                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

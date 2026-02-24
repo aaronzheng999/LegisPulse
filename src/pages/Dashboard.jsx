@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from "@/api/apiClient";
 import { FileText, Globe } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import BillCard from "../components/bills/BillCard";
 import BillFilters from "../components/bills/BillFilters";
-import NewBillsModal from "../components/bills/NewBillsModal";
 import BillDetailsModal from "../components/bills/BillDetailsModal";
 import BillSyncButton from "../components/bills/BillSyncButton";
 
@@ -21,7 +20,6 @@ export default function Dashboard() {
     session_year: null,
   });
   const [isLoading, setIsLoading] = useState(true);
-  const [showNewBillsModal, setShowNewBillsModal] = useState(false);
   const [selectedBill, setSelectedBill] = useState(null);
   const [user, setUser] = useState(null);
   const [trackedBillIds, setTrackedBillIds] = useState([]);
@@ -30,14 +28,48 @@ export default function Dashboard() {
     loadData();
   }, []);
 
+  const fixBillTypes = (bills) => {
+    // Determine bill type from bill number
+    return bills.map((bill) => {
+      if (!bill.bill_number) return bill;
+      const normalized = bill.bill_number.trim().toUpperCase();
+      const correctType =
+        normalized.startsWith("HR") || normalized.startsWith("SR")
+          ? "resolution"
+          : "bill";
+
+      // Only update if different
+      if (bill.bill_type !== correctType) {
+        return { ...bill, bill_type: correctType };
+      }
+      return bill;
+    });
+  };
+
   const loadData = async () => {
     setIsLoading(true);
     try {
       const [billsData, userData] = await Promise.all([
-        base44.entities.Bill.list("-last_action_date"),
-        base44.auth.me().catch(() => null),
+        api.entities.Bill.list(),
+        api.auth.me().catch(() => null),
       ]);
-      setBills(billsData);
+      // Fix any incorrect bill types
+      const correctedBills = fixBillTypes(billsData);
+
+      // Sort by highest bill number first (descending order)
+      correctedBills.sort((a, b) => {
+        const numA = parseInt(
+          String(a.bill_number).replace(/\D/g, "") || "0",
+          10,
+        );
+        const numB = parseInt(
+          String(b.bill_number).replace(/\D/g, "") || "0",
+          10,
+        );
+        return numB - numA;
+      });
+
+      setBills(correctedBills);
       setUser(userData);
       setTrackedBillIds(userData?.tracked_bill_ids || []);
     } catch (error) {
@@ -50,13 +82,83 @@ export default function Dashboard() {
     let filtered = bills;
 
     if (filters.search) {
-      const search = filters.search.toLowerCase();
-      filtered = filtered.filter(
-        (bill) =>
-          bill.bill_number.toLowerCase().includes(search) ||
-          bill.title.toLowerCase().includes(search) ||
-          bill.sponsor?.toLowerCase().includes(search),
-      );
+      const normalize = (value) =>
+        String(value || "")
+          .toLowerCase()
+          .normalize("NFKD")
+          .replace(/\p{Diacritic}/gu, "")
+          .replace(/[^a-z0-9]+/g, " ")
+          .trim();
+
+      const normalizeCompact = (value) => normalize(value).replace(/\s+/g, "");
+
+      const searchTokens = normalize(filters.search)
+        .split(/\s+/)
+        .filter(Boolean);
+
+      const searchCompact = normalizeCompact(filters.search);
+
+      // Check if search looks like a bill number (e.g., HB, HR, SB, SR)
+      const isBillNumberSearch = /^(hb|hr|sb|sr|hc|sc)/.test(searchCompact);
+
+      if (isBillNumberSearch) {
+        const exactBillMatch = searchCompact.match(
+          /^(hb|hr|sb|sr|hc|sc)(\d+)$/,
+        );
+
+        // For exact bill-number input like "hb10" or "hb 10", require exact match.
+        if (exactBillMatch) {
+          const queryPrefix = exactBillMatch[1];
+          const queryNumber = parseInt(exactBillMatch[2], 10);
+
+          filtered = filtered.filter((bill) => {
+            const billCompact = normalizeCompact(bill.bill_number);
+            const billMatch = billCompact.match(/^(hb|hr|sb|sr|hc|sc)(\d+)$/);
+            if (!billMatch) return false;
+
+            const billPrefix = billMatch[1];
+            const billNumber = parseInt(billMatch[2], 10);
+            return billPrefix === queryPrefix && billNumber === queryNumber;
+          });
+        } else {
+          // Prefix-only or partial bill-number searches still do bill-number-only matching.
+          filtered = filtered.filter((bill) => {
+            const billNumberNormalized = normalize(bill.bill_number);
+            const billNumberCompact = normalizeCompact(bill.bill_number);
+            return searchTokens.every(
+              (token) =>
+                billNumberNormalized.includes(token) ||
+                billNumberCompact.includes(token.replace(/\s+/g, "")),
+            );
+          });
+        }
+      } else {
+        filtered = filtered.filter((bill) => {
+          // Otherwise, do full-text search
+          const searchable = normalize(
+            [
+              bill.bill_number,
+              bill.title,
+              bill.sponsor,
+              bill.summary,
+              bill.current_committee,
+              bill.last_action,
+              bill.lc_number,
+              bill.status,
+              bill.bill_type,
+              bill.chamber,
+              bill.session_year,
+            ].join(" "),
+          );
+          const searchableCompact = searchable.replace(/\s+/g, "");
+
+          return searchTokens.every(
+            (token) =>
+              searchable.includes(token) ||
+              searchableCompact.includes(token.replace(/\s+/g, "")),
+          );
+        });
+      }
     }
 
     if (filters.chamber) {
@@ -123,7 +225,7 @@ export default function Dashboard() {
       : [...trackedBillIds, billId];
 
     setTrackedBillIds(newTrackedIds);
-    await base44.auth.updateMe({ tracked_bill_ids: newTrackedIds });
+    await api.auth.updateMe({ tracked_bill_ids: newTrackedIds });
 
     // Monitor tracked bill on Twitter
     if (!isCurrentlyTracked) {
@@ -134,7 +236,7 @@ export default function Dashboard() {
   const monitorBillOnTwitter = async (billNumber) => {
     try {
       // Search for recent tweets mentioning the bill
-      await base44.integrations.Core.InvokeLLM({
+      await api.integrations.Core.InvokeLLM({
         prompt: `Search Twitter/X for recent posts from @GeorgiaHouseofReps and @Georgia_Senate that mention "${billNumber}". 
         Look for any updates, votes, committee actions, or status changes related to this bill.
         Return the most relevant information about recent activity.`,
@@ -159,7 +261,7 @@ export default function Dashboard() {
       }).then(async (response) => {
         if (response.has_updates && response.updates?.length > 0) {
           // Create notification for user
-          await base44.entities.Notification.create({
+          await api.entities.Notification.create({
             user_id: user.id,
             notification_type: "bill_mention",
             title: `${billNumber} mentioned on Twitter`,
@@ -174,14 +276,18 @@ export default function Dashboard() {
     }
   };
 
-  const getNewBills = () => {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    return bills.filter((bill) => {
-      const created = new Date(bill.created_date);
-      return created >= yesterday;
+  const handleBillUpdate = useCallback((updatedBill) => {
+    if (!updatedBill?.id) return;
+
+    setBills((prev) =>
+      prev.map((bill) => (bill.id === updatedBill.id ? updatedBill : bill)),
+    );
+
+    setSelectedBill((prev) => {
+      if (!prev || prev.id !== updatedBill.id) return prev;
+      return { ...prev, ...updatedBill };
     });
-  };
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -204,7 +310,6 @@ export default function Dashboard() {
         <BillFilters
           filters={filters}
           onFilterChange={setFilters}
-          onShowNewBills={() => setShowNewBillsModal(true)}
           billCounts={getBillCounts()}
         />
 
@@ -262,13 +367,6 @@ export default function Dashboard() {
       </div>
 
       {/* Modals */}
-      <NewBillsModal
-        isOpen={showNewBillsModal}
-        onClose={() => setShowNewBillsModal(false)}
-        bills={getNewBills()}
-        onViewBill={setSelectedBill}
-      />
-
       <BillDetailsModal
         bill={selectedBill}
         isOpen={!!selectedBill}
@@ -277,6 +375,7 @@ export default function Dashboard() {
           selectedBill ? trackedBillIds.includes(selectedBill.id) : false
         }
         onToggleTracking={handleToggleTracking}
+        onBillUpdate={handleBillUpdate}
       />
     </div>
   );

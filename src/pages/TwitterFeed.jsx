@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { api } from "@/api/apiClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,8 +20,8 @@ export default function TwitterFeedPage() {
   const loadData = async () => {
     try {
       const [userData, bills] = await Promise.all([
-        base44.auth.me().catch(() => null),
-        base44.entities.Bill.list(),
+        api.auth.me().catch(() => null),
+        api.entities.Bill.list(),
       ]);
 
       setUser(userData);
@@ -226,23 +226,23 @@ export default function TwitterFeedPage() {
             </h3>
             <div className="space-y-2 text-sm text-slate-700">
               <p>
-                â€¢ We monitor official Georgia House and Senate Twitter accounts
+                â€?We monitor official Georgia House and Senate Twitter accounts
                 24/7
               </p>
               <p>
-                â€¢ When a tweet mentions any of your tracked bills, you'll
+                â€?When a tweet mentions any of your tracked bills, you'll
                 receive instant notifications
               </p>
               <p>
-                â€¢ Notifications can be sent to your phone via SMS or push
+                â€?Notifications can be sent to your phone via SMS or push
                 notification
               </p>
               <p>
-                â€¢ Filter the feed to see only tweets about bills you're tracking
+                â€?Filter the feed to see only tweets about bills you're tracking
                 or view all legislative updates
               </p>
               <p>
-                â€¢ All tweets are automatically linked to the relevant bill pages
+                â€?All tweets are automatically linked to the relevant bill pages
                 in your dashboard
               </p>
             </div>
