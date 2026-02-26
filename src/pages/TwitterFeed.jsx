@@ -27,7 +27,7 @@ export default function TwitterFeedPage() {
       setUser(userData);
       if (userData?.tracked_bill_ids) {
         const filtered = bills.filter((bill) =>
-          userData.tracked_bill_ids.includes(bill.id),
+          userData.tracked_bill_ids.includes(bill.bill_number),
         );
         setTrackedBills(filtered);
       }
@@ -226,23 +226,23 @@ export default function TwitterFeedPage() {
             </h3>
             <div className="space-y-2 text-sm text-slate-700">
               <p>
-                â€?We monitor official Georgia House and Senate Twitter accounts
+                ï¿½?We monitor official Georgia House and Senate Twitter accounts
                 24/7
               </p>
               <p>
-                â€?When a tweet mentions any of your tracked bills, you'll
+                ï¿½?When a tweet mentions any of your tracked bills, you'll
                 receive instant notifications
               </p>
               <p>
-                â€?Notifications can be sent to your phone via SMS or push
+                ï¿½?Notifications can be sent to your phone via SMS or push
                 notification
               </p>
               <p>
-                â€?Filter the feed to see only tweets about bills you're tracking
+                ï¿½?Filter the feed to see only tweets about bills you're tracking
                 or view all legislative updates
               </p>
               <p>
-                â€?All tweets are automatically linked to the relevant bill pages
+                ï¿½?All tweets are automatically linked to the relevant bill pages
                 in your dashboard
               </p>
             </div>
