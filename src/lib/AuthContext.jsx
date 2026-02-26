@@ -11,13 +11,18 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser(buildUser(session.user));
-        setIsAuthenticated(true);
-      }
-      setIsLoadingAuth(false);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        if (session?.user) {
+          setUser(buildUser(session.user));
+          setIsAuthenticated(true);
+        }
+        setIsLoadingAuth(false);
+      })
+      .catch(() => {
+        setIsLoadingAuth(false);
+      });
 
     // Listen for auth state changes (sign in, sign out, token refresh)
     const {
