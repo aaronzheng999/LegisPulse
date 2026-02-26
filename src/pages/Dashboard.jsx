@@ -225,10 +225,10 @@ export default function Dashboard() {
 
   const handleToggleTracking = async (billId, billNumber) => {
     if (!authUser) return;
-    const isCurrentlyTracked = trackedBillIds.includes(billId);
+    const isCurrentlyTracked = trackedBillIds.includes(billNumber);
     const newTrackedIds = isCurrentlyTracked
-      ? trackedBillIds.filter((id) => id !== billId)
-      : [...trackedBillIds, billId];
+      ? trackedBillIds.filter((id) => id !== billNumber)
+      : [...trackedBillIds, billNumber];
     trackMutation.mutate(newTrackedIds);
     if (!isCurrentlyTracked) {
       monitorBillOnTwitter(billNumber);
@@ -343,7 +343,7 @@ export default function Dashboard() {
                         bill={bill}
                         onViewDetails={setSelectedBill}
                         onToggleTracking={handleToggleTracking}
-                        isTracked={trackedBillIds.includes(bill.id)}
+                        isTracked={trackedBillIds.includes(bill.bill_number)}
                       />
                     </motion.div>
                   ))}
@@ -379,7 +379,9 @@ export default function Dashboard() {
         isOpen={!!selectedBill}
         onClose={() => setSelectedBill(null)}
         isTracked={
-          selectedBill ? trackedBillIds.includes(selectedBill.id) : false
+          selectedBill
+            ? trackedBillIds.includes(selectedBill.bill_number)
+            : false
         }
         onToggleTracking={handleToggleTracking}
         onBillUpdate={handleBillUpdate}

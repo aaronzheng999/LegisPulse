@@ -21,7 +21,7 @@ export default function TrackedBills() {
 
   const trackedBillIds = userData?.tracked_bill_ids ?? [];
   const trackedBills = allBills.filter((bill) =>
-    trackedBillIds.includes(bill.id),
+    trackedBillIds.includes(bill.bill_number),
   );
 
   const trackMutation = useMutation({
@@ -39,8 +39,8 @@ export default function TrackedBills() {
     },
   });
 
-  const handleToggleTracking = (billId) => {
-    const newTrackedIds = trackedBillIds.filter((id) => id !== billId);
+  const handleToggleTracking = (billId, billNumber) => {
+    const newTrackedIds = trackedBillIds.filter((id) => id !== billNumber);
     trackMutation.mutate(newTrackedIds);
   };
 
@@ -116,7 +116,9 @@ export default function TrackedBills() {
         isOpen={!!selectedBill}
         onClose={() => setSelectedBill(null)}
         isTracked={
-          selectedBill ? trackedBillIds.includes(selectedBill.id) : false
+          selectedBill
+            ? trackedBillIds.includes(selectedBill.bill_number)
+            : false
         }
         onToggleTracking={handleToggleTracking}
       />

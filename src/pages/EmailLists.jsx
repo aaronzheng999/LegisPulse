@@ -47,7 +47,7 @@ export default function EmailLists() {
       setEmailLists(lists);
       if (user?.tracked_bill_ids) {
         const filtered = bills.filter((bill) =>
-          user.tracked_bill_ids.includes(bill.id),
+          user.tracked_bill_ids.includes(bill.bill_number),
         );
         setTrackedBills(filtered);
       }
@@ -66,7 +66,7 @@ export default function EmailLists() {
       const billSummary = trackedBills
         .map(
           (bill) =>
-            `â€?${bill.bill_number}: ${bill.title}\n  Status: ${bill.status.replace(/_/g, " ")}\n  Sponsor: ${bill.sponsor}\n`,
+            `ï¿½?${bill.bill_number}: ${bill.title}\n  Status: ${bill.status.replace(/_/g, " ")}\n  Sponsor: ${bill.sponsor}\n`,
         )
         .join("\n");
 
@@ -260,7 +260,7 @@ Your Legislative Team`;
                   {sentCount > 0 && (
                     <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
                       <p className="text-sm text-emerald-800">
-                        âœ?Successfully sent to {sentCount} recipients
+                        ï¿½?Successfully sent to {sentCount} recipients
                       </p>
                     </div>
                   )}
