@@ -325,6 +325,255 @@ export const api = {
         return sortByField(data ?? [], sortKey);
       },
     },
+
+    Team: {
+      async getOrCreate() {
+        const userId = await getUserId();
+        const { data: sessionData } = await supabase.auth.getSession();
+        const email = sessionData?.session?.user?.email ?? "";
+
+        // Check for pending invites FIRST — before creating anything
+        // Use RPC to bypass RLS (security definer function)
+        const { data: pending, error: pendingErr } = await supabase.rpc(
+          "get_my_pending_invites",
+        );
+        if (pendingErr)
+          console.error("[Team] get_my_pending_invites error:", pendingErr);
+        if (pending && pending.length > 0) {
+          return { __pendingInvite: true };
+        }
+
+        // Check if user is an active MEMBER of someone else's team (invited)
+        // This takes priority over ownership so invited users see the shared team
+        const { data: membership, error: memberErr } = await supabase
+          .from("team_members")
+          .select("team_id, teams(*)")
+          .eq("user_id", userId)
+          .eq("status", "active")
+          .eq("role", "member")
+          .maybeSingle();
+        if (memberErr) throw memberErr;
+        if (membership?.teams) return membership.teams;
+
+        // Check if user owns a team
+        const { data: owned, error: ownedErr } = await supabase
+          .from("teams")
+          .select("*")
+          .eq("created_by", userId)
+          .maybeSingle();
+        if (ownedErr) throw ownedErr;
+        if (owned) return owned;
+
+        // Auto-create a new team
+        const firstName = email.split("@")[0] || "My";
+        const { data: newTeam, error } = await supabase
+          .from("teams")
+          .insert({ name: `${firstName}'s Team`, created_by: userId })
+          .select()
+          .single();
+        if (error) throw error;
+
+        // Add self as owner member
+        await supabase.from("team_members").insert({
+          team_id: newTeam.id,
+          user_id: userId,
+          email,
+          role: "owner",
+          status: "active",
+        });
+        return newTeam;
+      },
+
+      async acceptPendingInvites() {
+        const { error } = await supabase.rpc("accept_my_team_invites");
+        if (error) throw error;
+      },
+
+      async getPendingInvites() {
+        const { data, error } = await supabase.rpc("get_my_pending_invites");
+        if (error) throw error;
+        // Normalize to match UI expectations: { id, teams: { name } }
+        return (data ?? []).map((r) => ({
+          id: r.id,
+          team_id: r.team_id,
+          email: r.invite_email,
+          role: r.role,
+          status: r.status,
+          teams: { name: r.team_name },
+        }));
+      },
+
+      async getMembers(teamId) {
+        const { data, error } = await supabase
+          .from("team_members")
+          .select("*")
+          .eq("team_id", teamId)
+          .order("joined_at");
+        if (error) throw error;
+        return data ?? [];
+      },
+
+      async inviteMember(teamId, email) {
+        const { data, error } = await supabase
+          .from("team_members")
+          .insert({
+            team_id: teamId,
+            email: email.toLowerCase().trim(),
+            role: "member",
+            status: "pending",
+            user_id: null,
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      },
+
+      async removeMember(memberId) {
+        // Use security definer RPC so owner can delete any member in their team
+        const { error } = await supabase.rpc("remove_team_member", {
+          member_id: memberId,
+        });
+        if (error) throw error;
+      },
+
+      async declineInvite(inviteId) {
+        const { error } = await supabase.rpc("decline_my_team_invite", {
+          invite_id: inviteId,
+        });
+        if (error) throw error;
+      },
+
+      async leaveTeam(teamId) {
+        const { error } = await supabase.rpc("leave_my_team", {
+          p_team_id: teamId,
+        });
+        if (error) throw error;
+      },
+
+      async getBillNumbers(teamId) {
+        const { data, error } = await supabase
+          .from("team_bills")
+          .select("bill_number")
+          .eq("team_id", teamId);
+        if (error) throw error;
+        return (data ?? []).map((r) => r.bill_number);
+      },
+
+      async addBill(teamId, billNumber) {
+        const userId = await getUserId();
+        const { error } = await supabase
+          .from("team_bills")
+          .upsert(
+            { team_id: teamId, bill_number: billNumber, added_by: userId },
+            { onConflict: "team_id,bill_number" },
+          );
+        if (error) throw error;
+      },
+
+      async removeBill(teamId, billNumber) {
+        const { error } = await supabase
+          .from("team_bills")
+          .delete()
+          .eq("team_id", teamId)
+          .eq("bill_number", billNumber);
+        if (error) throw error;
+      },
+    },
+
+    TeamChat: {
+      /** Fetch messages for a team via a SECURITY DEFINER RPC — bypasses RLS entirely. */
+      async getMessages(teamId) {
+        const { data, error } = await supabase.rpc("get_team_chat_messages", {
+          p_team_id: teamId,
+        });
+        if (error) throw error;
+        return (data ?? []).map((m) => ({
+          ...m,
+          profiles: { name: m.sender_name, email: m.sender_email },
+        }));
+      },
+
+      /** Enrich a bare realtime message row with its sender's profile. */
+      async enrichMessage(msg, teamId) {
+        const { data: profiles } = await supabase.rpc(
+          "get_team_member_profiles",
+          { p_team_id: teamId },
+        );
+        const profile =
+          (profiles ?? []).find((p) => p.id === msg.user_id) ?? null;
+        return { ...msg, profiles: profile };
+      },
+
+      /** Upload a file to Supabase Storage, returns { url, name, type, size }. */
+      async uploadFile(teamId, file) {
+        const userId = await getUserId();
+        const ext = file.name.split(".").pop();
+        const path = `${userId}/${teamId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const { error } = await supabase.storage
+          .from("team-chat-files")
+          .upload(path, file, { cacheControl: "3600", upsert: false });
+        if (error) throw error;
+        const { data: urlData } = supabase.storage
+          .from("team-chat-files")
+          .getPublicUrl(path);
+        return {
+          url: urlData.publicUrl,
+          name: file.name,
+          type: file.type,
+          size: file.size,
+        };
+      },
+
+      /** Send a message with optional attachment. */
+      async sendMessage(teamId, message, attachment = null) {
+        const params = {
+          p_team_id: teamId,
+          p_message: (message || "").trim(),
+          p_attachment_url: attachment?.url ?? null,
+          p_attachment_name: attachment?.name ?? null,
+          p_attachment_type: attachment?.type ?? null,
+          p_attachment_size: attachment?.size ?? null,
+        };
+        const { data, error } = await supabase.rpc(
+          "send_team_chat_message",
+          params,
+        );
+        if (error) throw error;
+        const row = Array.isArray(data) ? data[0] : data;
+        if (!row) throw new Error("Message was not saved.");
+        return {
+          ...row,
+          profiles: { name: row.sender_name, email: row.sender_email },
+        };
+      },
+
+      /** Delete one of your own messages. */
+      async deleteMessage(messageId) {
+        const { error } = await supabase
+          .from("team_chat_messages")
+          .delete()
+          .eq("id", messageId);
+        if (error) throw error;
+      },
+
+      /** Subscribe to real-time new messages for a team. Returns the channel so it can be unsubscribed. */
+      subscribeToMessages(teamId, onInsert) {
+        return supabase
+          .channel(`team_chat_${teamId}`)
+          .on(
+            "postgres_changes",
+            {
+              event: "INSERT",
+              schema: "public",
+              table: "team_chat_messages",
+              filter: `team_id=eq.${teamId}`,
+            },
+            (payload) => onInsert(payload.new),
+          )
+          .subscribe();
+      },
+    },
   },
 
   // ─── Integrations ──────────────────────────────────────────────────────────

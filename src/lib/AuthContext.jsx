@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { queryClientInstance } from "@/lib/query-client";
 
 const AuthContext = createContext(null);
 
@@ -11,18 +12,23 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser(buildUser(session.user));
-        setIsAuthenticated(true);
-      }
-      setIsLoadingAuth(false);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        if (session?.user) {
+          setUser(buildUser(session.user));
+          setIsAuthenticated(true);
+        }
+        setIsLoadingAuth(false);
+      })
+      .catch(() => {
+        setIsLoadingAuth(false);
+      });
 
     // Listen for auth state changes (sign in, sign out, token refresh)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
         setUser(buildUser(session.user));
         setIsAuthenticated(true);
@@ -30,6 +36,11 @@ export const AuthProvider = ({ children }) => {
       } else {
         setUser(null);
         setIsAuthenticated(false);
+      }
+      // Only wipe the cache on an explicit sign-out so that token
+      // refreshes and sign-in events don't discard in-flight queries.
+      if (event === "SIGNED_OUT") {
+        queryClientInstance.clear();
       }
       setIsLoadingAuth(false);
     });
