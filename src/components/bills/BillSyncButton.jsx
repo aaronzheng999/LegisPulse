@@ -73,6 +73,9 @@ export default function BillSyncButton({ onSyncComplete, autoSync = false }) {
         total: bills.length,
       });
 
+      // Auto-dismiss success banner after 3 seconds
+      setTimeout(() => setSyncStatus(null), 3000);
+
       if (onSyncComplete) {
         onSyncComplete();
       }

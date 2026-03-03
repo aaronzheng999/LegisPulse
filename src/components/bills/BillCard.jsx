@@ -3,6 +3,12 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   FileText,
   Calendar,
   User,
@@ -96,6 +102,9 @@ export default function BillCard({
   onAddToTeam,
   teamButtonLabel,
   teamMeta,
+  teams,
+  teamBillMap,
+  onToggleTeamBill,
 }) {
   const ChamberIcon = getChamberIcon(bill.chamber);
   const [showAllSponsors, setShowAllSponsors] = useState(false);
@@ -283,7 +292,67 @@ export default function BillCard({
         )}
 
         <div className="flex justify-end pt-2 gap-2">
-          {onAddToTeam && (
+          {/* Multi-team dropdown */}
+          {teams && teams.length > 0 && onToggleTeamBill && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant={
+                    teams.some((t) =>
+                      (teamBillMap?.[t.id] ?? []).includes(bill.bill_number),
+                    )
+                      ? "default"
+                      : "outline"
+                  }
+                  size="sm"
+                  className={
+                    teams.some((t) =>
+                      (teamBillMap?.[t.id] ?? []).includes(bill.bill_number),
+                    )
+                      ? "bg-green-600 hover:bg-green-700 text-white gap-1"
+                      : "border-green-200 text-green-600 hover:bg-green-50 gap-1"
+                  }
+                >
+                  <Users className="w-3 h-3" />
+                  {teams.some((t) =>
+                    (teamBillMap?.[t.id] ?? []).includes(bill.bill_number),
+                  )
+                    ? `In ${teams.filter((t) => (teamBillMap?.[t.id] ?? []).includes(bill.bill_number)).length} Team${teams.filter((t) => (teamBillMap?.[t.id] ?? []).includes(bill.bill_number)).length !== 1 ? "s" : ""}`
+                    : "Add to Team"}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[180px]">
+                {teams.map((t) => {
+                  const inThisTeam = (teamBillMap?.[t.id] ?? []).includes(
+                    bill.bill_number,
+                  );
+                  return (
+                    <DropdownMenuItem
+                      key={t.id}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onToggleTeamBill(t.id, bill.bill_number);
+                      }}
+                      className="flex items-center gap-2 cursor-pointer"
+                    >
+                      <span
+                        className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                          inThisTeam
+                            ? "bg-green-600 border-green-600"
+                            : "border-slate-300"
+                        }`}
+                      >
+                        {inThisTeam && <Check className="w-3 h-3 text-white" />}
+                      </span>
+                      <span className="text-sm truncate">{t.name}</span>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {/* Legacy single-team button */}
+          {onAddToTeam && !teams?.length && (
             <Button
               variant={isInTeam ? "default" : "outline"}
               size="sm"

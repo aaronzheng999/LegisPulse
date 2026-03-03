@@ -40,30 +40,50 @@ export default function Dashboard() {
   const trackedBillIds = userData?.tracked_bill_ids ?? [];
 
   // ── Team ────────────────────────────────────────────────────────────────────
-  const { data: team } = useQuery({
-    queryKey: ["team"],
+  const { data: allTeamData } = useQuery({
+    queryKey: ["allTeams"],
     queryFn: () =>
-      api.entities.Team.get().catch((err) => {
-        console.error("[Team] get failed:", err?.message, err);
-        return null;
+      api.entities.Team.getAll().catch((err) => {
+        console.error("[Team] getAll failed:", err?.message, err);
+        return { teams: [], __pendingInvites: [] };
       }),
     staleTime: 0,
     retry: 1,
   });
-  const teamId = team?.id;
+  const allTeams = allTeamData?.teams ?? [];
 
-  const { data: teamBillNumbers = [] } = useQuery({
-    queryKey: ["teamBills", teamId],
-    queryFn: () => api.entities.Team.getBillNumbers(teamId),
-    enabled: !!teamId,
+  // Fetch bill numbers for every team in parallel
+  const teamBillQueries = allTeams.map((t) => ({
+    queryKey: ["teamBills", t.id],
+    queryFn: () => api.entities.Team.getBillNumbers(t.id),
+    enabled: !!t.id,
+  }));
+
+  // Use individual useQuery for each team's bills
+  const { data: teamBillMap = {} } = useQuery({
+    queryKey: ["allTeamBills", allTeams.map((t) => t.id).join(",")],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        allTeams.map(async (t) => {
+          const cached = queryClient.getQueryData(["teamBills", t.id]);
+          if (cached) return [t.id, cached];
+          const nums = await api.entities.Team.getBillNumbers(t.id);
+          queryClient.setQueryData(["teamBills", t.id], nums);
+          return [t.id, nums];
+        }),
+      );
+      return Object.fromEntries(entries);
+    },
+    enabled: allTeams.length > 0,
+    staleTime: 0,
   });
 
   const teamBillMutation = useMutation({
-    mutationFn: ({ action, billNumber }) =>
+    mutationFn: ({ teamId, action, billNumber }) =>
       action === "add"
         ? api.entities.Team.addBill(teamId, billNumber)
         : api.entities.Team.removeBill(teamId, billNumber),
-    onMutate: async ({ action, billNumber }) => {
+    onMutate: async ({ teamId, action, billNumber }) => {
       await queryClient.cancelQueries({ queryKey: ["teamBills", teamId] });
       const prev = queryClient.getQueryData(["teamBills", teamId]);
       queryClient.setQueryData(["teamBills", teamId], (old) =>
@@ -71,35 +91,48 @@ export default function Dashboard() {
           ? [...(old ?? []), billNumber]
           : (old ?? []).filter((n) => n !== billNumber),
       );
-      return { prev };
+      // Also optimistically update the combined map
+      queryClient.setQueryData(
+        ["allTeamBills", allTeams.map((t) => t.id).join(",")],
+        (old) => {
+          if (!old) return old;
+          const teamNums = old[teamId] ?? [];
+          return {
+            ...old,
+            [teamId]:
+              action === "add"
+                ? [...teamNums, billNumber]
+                : teamNums.filter((n) => n !== billNumber),
+          };
+        },
+      );
+      return { prev, teamId };
     },
     onError: (_e, _v, ctx) => {
-      queryClient.setQueryData(["teamBills", teamId], ctx.prev);
+      if (ctx?.teamId) {
+        queryClient.setQueryData(["teamBills", ctx.teamId], ctx.prev);
+      }
     },
-    onSettled: () => {
+    onSettled: (_d, _e, { teamId }) => {
       queryClient.invalidateQueries({ queryKey: ["teamBills", teamId] });
+      queryClient.invalidateQueries({
+        queryKey: ["allTeamBills"],
+      });
     },
   });
 
-  const handleAddToTeam = (billNumber) => {
-    if (!teamId) {
-      toast({
-        title: "Team not ready",
-        description:
-          "The team feature requires the database tables to be set up. Please run the SQL migration in Supabase.",
-        variant: "destructive",
-        duration: 4000,
-      });
-      return;
-    }
-    const isCurrentlyInTeam = teamBillNumbers.includes(billNumber);
+  const handleToggleTeamBill = (teamId, billNumber) => {
+    const currentNums = teamBillMap[teamId] ?? [];
+    const isCurrentlyInTeam = currentNums.includes(billNumber);
     teamBillMutation.mutate({
+      teamId,
       action: isCurrentlyInTeam ? "remove" : "add",
       billNumber,
     });
+    const team = allTeams.find((t) => t.id === teamId);
     toast({
       title: isCurrentlyInTeam ? "Removed from team" : "Added to team",
-      description: `${billNumber} ${isCurrentlyInTeam ? "removed from" : "added to"} your team's bills.`,
+      description: `${billNumber} ${isCurrentlyInTeam ? "removed from" : "added to"} ${team?.name ?? "team"}.`,
       duration: 3000,
     });
   };
@@ -430,8 +463,9 @@ export default function Dashboard() {
                         onViewDetails={setSelectedBill}
                         onToggleTracking={handleToggleTracking}
                         isTracked={trackedBillIds.includes(bill.bill_number)}
-                        isInTeam={teamBillNumbers.includes(bill.bill_number)}
-                        onAddToTeam={() => handleAddToTeam(bill.bill_number)}
+                        teams={allTeams}
+                        teamBillMap={teamBillMap}
+                        onToggleTeamBill={handleToggleTeamBill}
                       />
                     </motion.div>
                   ))}
@@ -473,16 +507,9 @@ export default function Dashboard() {
         }
         onToggleTracking={handleToggleTracking}
         onBillUpdate={handleBillUpdate}
-        isInTeam={
-          selectedBill
-            ? teamBillNumbers.includes(selectedBill.bill_number)
-            : false
-        }
-        onAddToTeam={
-          selectedBill
-            ? () => handleAddToTeam(selectedBill.bill_number)
-            : undefined
-        }
+        teams={allTeams}
+        teamBillMap={teamBillMap}
+        onToggleTeamBill={handleToggleTeamBill}
       />
     </div>
   );

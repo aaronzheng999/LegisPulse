@@ -202,8 +202,8 @@ export default function Team() {
       <div className="max-w-7xl mx-auto p-6 space-y-6">
         {/* Page header */}
         <div className="flex items-center gap-4">
-          <div className="p-3 bg-green-100 rounded-lg">
-            <Users className="w-6 h-6 text-green-600" />
+          <div className="p-3 bg-blue-100 rounded-lg">
+            <Users className="w-6 h-6 text-blue-600" />
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-3xl font-bold text-slate-900">Teams</h1>

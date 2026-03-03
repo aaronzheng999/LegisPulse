@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/apiClient";
 import { useAuth } from "@/lib/AuthContext";
@@ -26,6 +26,7 @@ import {
   Check,
   CheckCircle,
   XCircle,
+  Shield as ShieldIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +65,26 @@ import TeamChat from "@/components/TeamChat";
 import { useResizableHeight, ResizeHandle } from "@/hooks/use-resizable-height";
 
 // ── Constants ────────────────────────────────────────────────────────────────
+const TEAM_COLORS = [
+  { bg: "bg-indigo-100", fg: "text-indigo-600" },
+  { bg: "bg-rose-100", fg: "text-rose-600" },
+  { bg: "bg-amber-100", fg: "text-amber-600" },
+  { bg: "bg-teal-100", fg: "text-teal-600" },
+  { bg: "bg-violet-100", fg: "text-violet-600" },
+  { bg: "bg-cyan-100", fg: "text-cyan-600" },
+  { bg: "bg-pink-100", fg: "text-pink-600" },
+  { bg: "bg-emerald-100", fg: "text-emerald-600" },
+  { bg: "bg-orange-100", fg: "text-orange-600" },
+  { bg: "bg-sky-100", fg: "text-sky-600" },
+];
+function teamColor(id) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  }
+  return TEAM_COLORS[Math.abs(hash) % TEAM_COLORS.length];
+}
+
 const PARTY_COLORS = {
   D: "bg-indigo-500 text-white",
   R: "bg-rose-500 text-white",
@@ -102,6 +123,52 @@ export default function TeamSection({ team, onLeave, defaultOpen = true }) {
   React.useEffect(() => {
     localStorage.setItem(`team-open-${teamId}`, String(teamOpen));
   }, [teamOpen, teamId]);
+
+  // ── Unread chat messages ─────────────────────────────────────────────────
+  const chatCacheKey = ["teamChat", teamId, authUser?.id];
+  const cachedMessages = queryClient.getQueryData(chatCacheKey) ?? [];
+  const [lastChatRead, setLastChatRead] = useState(
+    () => localStorage.getItem(`team-chat-read-${teamId}`) || null,
+  );
+
+  const unreadChatCount = useMemo(() => {
+    if (!cachedMessages.length) return 0;
+    if (!lastChatRead) return 0; // first mount = no unread
+    return cachedMessages.filter(
+      (m) =>
+        m.user_id !== authUser?.id &&
+        new Date(m.created_at) > new Date(lastChatRead),
+    ).length;
+  }, [cachedMessages, lastChatRead, authUser?.id]);
+
+  // Mark chat as read when team section is open
+  useEffect(() => {
+    if (teamOpen && cachedMessages.length > 0) {
+      const now = new Date().toISOString();
+      localStorage.setItem(`team-chat-read-${teamId}`, now);
+      setLastChatRead(now);
+    }
+  }, [teamOpen, cachedMessages.length, teamId]);
+
+  // Re-check cache periodically (realtime messages update the cache)
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (teamOpen) return; // no need to tick when open (already read)
+    const iv = setInterval(() => setTick((t) => t + 1), 3000);
+    return () => clearInterval(iv);
+  }, [teamOpen]);
+
+  // Initialize lastChatRead on first mount if not set
+  useEffect(() => {
+    if (
+      !localStorage.getItem(`team-chat-read-${teamId}`) &&
+      cachedMessages.length > 0
+    ) {
+      const now = new Date().toISOString();
+      localStorage.setItem(`team-chat-read-${teamId}`, now);
+      setLastChatRead(now);
+    }
+  }, [teamId, cachedMessages.length]);
 
   // ── Rename ─────────────────────────────────────────────────────────────────
   const [isRenaming, setIsRenaming] = useState(false);
@@ -360,8 +427,8 @@ export default function TeamSection({ team, onLeave, defaultOpen = true }) {
         {/* Team header — always visible */}
         <CardHeader className="pb-3">
           <div className="flex items-center gap-4">
-            <div className="p-2 bg-green-100 rounded-lg shrink-0">
-              <Users className="w-5 h-5 text-green-600" />
+            <div className={`p-2 rounded-lg shrink-0 ${teamColor(teamId).bg}`}>
+              <ShieldIcon className={`w-5 h-5 ${teamColor(teamId).fg}`} />
             </div>
             <div className="flex-1 min-w-0">
               {isRenaming && isOwner ? (
@@ -401,6 +468,11 @@ export default function TeamSection({ team, onLeave, defaultOpen = true }) {
                   <h2 className="text-xl font-bold text-slate-900 truncate">
                     {team.name}
                   </h2>
+                  {unreadChatCount > 0 && !teamOpen && (
+                    <span className="min-w-[20px] h-5 px-1.5 flex items-center justify-center bg-red-500 text-white text-[11px] font-bold rounded-full leading-none">
+                      {unreadChatCount > 99 ? "99+" : unreadChatCount}
+                    </span>
+                  )}
                   {isOwner && teamOpen && (
                     <button
                       onClick={() => {
