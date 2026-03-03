@@ -349,17 +349,15 @@ export const api = {
       /** Upsert metadata for a specific bill. */
       async update(billNumber, fields) {
         const userId = await getUserId();
-        const { error } = await supabase
-          .from("user_bill_metadata")
-          .upsert(
-            {
-              user_id: userId,
-              bill_number: billNumber,
-              ...fields,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: "user_id,bill_number" },
-          );
+        const { error } = await supabase.from("user_bill_metadata").upsert(
+          {
+            user_id: userId,
+            bill_number: billNumber,
+            ...fields,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id,bill_number" },
+        );
         if (error) throw error;
       },
     },
@@ -464,73 +462,46 @@ export const api = {
         return newTeam;
       },
 
-      // Like getOrCreate but returns null instead of auto-creating.
-      // Used by the Team page so leaving a team shows "no team" rather than
-      // immediately spawning a new one.
-      async get() {
+      // Returns ALL teams the user belongs to (as owner or active member).
+      // Also includes a __pendingInvites array when pending invites exist.
+      async getAll() {
         const userId = await getUserId();
 
+        // 1) Check pending invites
         const { data: pending } = await supabase.rpc("get_my_pending_invites");
-        if (pending && pending.length > 0) {
-          const { data: currentMembership } = await supabase
-            .from("team_members")
-            .select("team_id, teams(name)")
-            .eq("user_id", userId)
-            .eq("status", "active")
-            .eq("role", "member")
-            .maybeSingle();
-          if (currentMembership?.teams?.name) {
-            return {
-              __pendingInvite: true,
-              __currentTeamName: currentMembership.teams.name,
-              __isOwner: false,
-              __ownedTeamMemberCount: 0,
-            };
-          }
-          const { data: ownedTeam } = await supabase
-            .from("teams")
-            .select("id, name")
-            .eq("created_by", userId)
-            .maybeSingle();
-          if (ownedTeam) {
-            const { count } = await supabase
-              .from("team_members")
-              .select("id", { count: "exact", head: true })
-              .eq("team_id", ownedTeam.id)
-              .eq("status", "active")
-              .eq("role", "member");
-            return {
-              __pendingInvite: true,
-              __currentTeamName: ownedTeam.name,
-              __isOwner: true,
-              __ownedTeamMemberCount: count ?? 0,
-            };
-          }
-          return {
-            __pendingInvite: true,
-            __currentTeamName: null,
-            __isOwner: false,
-            __ownedTeamMemberCount: 0,
-          };
-        }
+        const hasPending = pending && pending.length > 0;
 
-        const { data: membership } = await supabase
+        // 2) Fetch all teams via active memberships
+        const { data: memberships, error: memErr } = await supabase
           .from("team_members")
-          .select("team_id, teams(*)")
+          .select("team_id, role, teams(*)")
           .eq("user_id", userId)
-          .eq("status", "active")
-          .eq("role", "member")
-          .maybeSingle();
-        if (membership?.teams) return membership.teams;
+          .eq("status", "active");
+        if (memErr) throw memErr;
 
-        const { data: owned } = await supabase
-          .from("teams")
-          .select("*")
-          .eq("created_by", userId)
-          .maybeSingle();
-        if (owned) return owned;
+        const teams = (memberships ?? [])
+          .filter((m) => m.teams)
+          .map((m) => ({ ...m.teams, _role: m.role }));
 
-        return null; // no team — caller decides what to do
+        return {
+          teams,
+          __pendingInvites: hasPending
+            ? (pending ?? []).map((r) => ({
+                id: r.id,
+                team_id: r.team_id,
+                email: r.invite_email,
+                role: r.role,
+                status: r.status,
+                teams: { name: r.team_name },
+              }))
+            : [],
+        };
+      },
+
+      // Legacy single-team getter — kept for Layout sidebar compatibility
+      async get() {
+        const { teams } = await api.entities.Team.getAll();
+        return teams.length > 0 ? teams[0] : null;
       },
 
       async createTeam(name) {
@@ -637,6 +608,28 @@ export const api = {
         if (error) throw error;
       },
 
+      async renameTeam(teamId, name) {
+        const { error } = await supabase.rpc("rename_team", {
+          p_team_id: teamId,
+          p_name: name,
+        });
+        if (error) throw error;
+      },
+
+      async approveJoinRequest(memberId) {
+        const { error } = await supabase.rpc("approve_join_request", {
+          p_member_id: memberId,
+        });
+        if (error) throw error;
+      },
+
+      async declineJoinRequest(memberId) {
+        const { error } = await supabase.rpc("decline_join_request", {
+          p_member_id: memberId,
+        });
+        if (error) throw error;
+      },
+
       async getBillNumbers(teamId) {
         const { data, error } = await supabase
           .from("team_bills")
@@ -693,6 +686,79 @@ export const api = {
           .eq("team_id", teamId)
           .eq("bill_number", billNumber);
         if (error) throw error;
+      },
+
+      /**
+       * Get notification counts for the Team nav badge.
+       * @param {string|null} lastChatVisit - ISO timestamp of last Team page visit (for unread chat)
+       * @returns {{ pendingInvites: number, joinRequests: number, unreadChats: number }}
+       */
+      async getTeamNotifications(lastChatVisit = null) {
+        const userId = await getUserId();
+
+        // 1) Pending invites for me
+        const { data: pending } = await supabase.rpc("get_my_pending_invites");
+        const pendingInvites = pending?.length ?? 0;
+
+        // 2) My active memberships (to find owned teams + active team IDs)
+        const { data: memberships } = await supabase
+          .from("team_members")
+          .select("team_id, role, teams!inner(created_by)")
+          .eq("user_id", userId)
+          .eq("status", "active");
+
+        const ownedTeamIds = (memberships ?? [])
+          .filter((m) => m.teams?.created_by === userId)
+          .map((m) => m.team_id);
+        const allTeamIds = (memberships ?? []).map((m) => m.team_id);
+
+        // 3) Join requests in teams I own
+        let joinRequests = 0;
+        if (ownedTeamIds.length > 0) {
+          const { count } = await supabase
+            .from("team_members")
+            .select("id", { count: "exact", head: true })
+            .in("team_id", ownedTeamIds)
+            .eq("status", "pending_approval");
+          joinRequests = count ?? 0;
+        }
+
+        // 4) Unread chat messages since last Team page visit
+        let unreadChats = 0;
+        if (allTeamIds.length > 0 && lastChatVisit) {
+          const { count } = await supabase
+            .from("team_chat_messages")
+            .select("id", { count: "exact", head: true })
+            .in("team_id", allTeamIds)
+            .gt("created_at", lastChatVisit)
+            .neq("user_id", userId);
+          unreadChats = count ?? 0;
+        }
+
+        return { pendingInvites, joinRequests, unreadChats };
+      },
+
+      /**
+       * Get full details of pending join requests for teams I own.
+       * Returns array of { id, team_id, email, teamName }.
+       */
+      async getPendingJoinRequests() {
+        const userId = await getUserId();
+
+        const { data, error } = await supabase
+          .from("team_members")
+          .select("id, team_id, email, teams!inner(name, created_by)")
+          .eq("status", "pending_approval")
+          .eq("teams.created_by", userId);
+
+        if (error) throw error;
+
+        return (data ?? []).map((r) => ({
+          id: r.id,
+          team_id: r.team_id,
+          email: r.email,
+          teamName: r.teams?.name ?? "Unknown team",
+        }));
       },
     },
 

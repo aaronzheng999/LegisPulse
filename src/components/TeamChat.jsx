@@ -255,7 +255,7 @@ export default function TeamChat({ teamId }) {
     onMouseDown: onResizeMouseDown,
     toggle: toggleChatCollapse,
   } = useResizableHeight({
-    storageKey: "team-chat-height",
+    storageKey: `team-chat-height-${teamId}`,
     defaultHeight: 520,
     minHeight: 200,
   });

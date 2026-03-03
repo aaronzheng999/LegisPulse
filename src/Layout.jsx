@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { useAuth } from "@/lib/AuthContext";
@@ -87,11 +87,32 @@ export default function Layout({ children, currentPageName }) {
   const totalBills = bills.length;
   const trackedCount = (userData?.tracked_bill_ids ?? []).length;
 
+  // ── Team notification badge ────────────────────────────────────────────────
+  const { data: teamNotifications } = useQuery({
+    queryKey: ["teamNotifications"],
+    queryFn: () => {
+      const lastVisit = localStorage.getItem("team-page-last-visit");
+      return api.entities.Team.getTeamNotifications(lastVisit);
+    },
+    enabled: !!user,
+    refetchInterval: 30000, // poll every 30s
+    staleTime: 10000,
+  });
+
+  const teamBadgeCount = useMemo(() => {
+    if (!teamNotifications) return 0;
+    return (
+      (teamNotifications.pendingInvites ?? 0) +
+      (teamNotifications.joinRequests ?? 0) +
+      (teamNotifications.unreadChats ?? 0)
+    );
+  }, [teamNotifications]);
+
   return (
     <SidebarProvider>
       <div className="h-screen flex w-full bg-slate-50 overflow-hidden">
         <Sidebar className="border-r border-slate-200 bg-white">
-          <SidebarHeader className="border-b border-slate-200 p-6">
+          <SidebarHeader className="border-b border-slate-200 p-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center shadow-sm">
                 <Building2 className="w-6 h-6 text-white" />
@@ -107,7 +128,7 @@ export default function Layout({ children, currentPageName }) {
 
           <SidebarContent className="p-4">
             <SidebarGroup>
-              <SidebarGroupLabel className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-2 py-3">
+              <SidebarGroupLabel className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-2 py-2">
                 Navigation
               </SidebarGroupLabel>
               <SidebarGroupContent>
@@ -124,17 +145,17 @@ export default function Layout({ children, currentPageName }) {
                       >
                         <Link
                           to={item.url}
-                          className="flex items-center gap-3 px-3 py-3"
+                          className="flex items-center gap-3 px-3 py-2"
                         >
                           <item.icon className="w-5 h-5" />
-                          <div className="flex-1">
-                            <span className="font-semibold text-sm">
-                              {item.title}
+                          <span className="font-semibold text-sm flex-1">
+                            {item.title}
+                          </span>
+                          {item.title === "Team" && teamBadgeCount > 0 && (
+                            <span className="min-w-[20px] h-5 px-1.5 flex items-center justify-center bg-red-500 text-white text-[11px] font-bold rounded-full leading-none">
+                              {teamBadgeCount > 99 ? "99+" : teamBadgeCount}
                             </span>
-                            <p className="text-xs text-slate-500 group-hover:text-blue-600 transition-colors">
-                              {item.description}
-                            </p>
-                          </div>
+                          )}
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -143,8 +164,8 @@ export default function Layout({ children, currentPageName }) {
               </SidebarGroupContent>
             </SidebarGroup>
 
-            <SidebarGroup className="mt-8">
-              <SidebarGroupLabel className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-2 py-3">
+            <SidebarGroup className="mt-4">
+              <SidebarGroupLabel className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-2 py-2">
                 Quick Stats
               </SidebarGroupLabel>
               <SidebarGroupContent>
