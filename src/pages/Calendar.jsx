@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/apiClient";
+import { fetchGAEvents } from "@/services/openstates";
 import { useToast } from "@/components/ui/use-toast";
 import {
   format,
@@ -33,11 +34,18 @@ import {
   MapPin,
   Trash2,
   CalendarDays,
+  Landmark,
+  ExternalLink,
+  FileText,
+  Users,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
@@ -98,6 +106,12 @@ const EVENT_COLORS = [
     bg: "bg-yellow-500",
     light: "bg-yellow-100 text-yellow-800 border-yellow-300",
   },
+  {
+    value: "gold",
+    label: "Legislative",
+    bg: "bg-amber-600",
+    light: "bg-amber-50 text-amber-900 border-amber-400",
+  },
 ];
 
 const getColorClasses = (color) =>
@@ -133,6 +147,8 @@ export default function CalendarPage() {
   const [editingEvent, setEditingEvent] = useState(null);
   const [formData, setFormData] = useState(makeDefaultEvent());
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [showLegislative, setShowLegislative] = useState(true);
+  const [legEventDetail, setLegEventDetail] = useState(null);
 
   // ── Date range for queries ──────────────────────────────────
   const queryRange = useMemo(() => {
@@ -152,11 +168,32 @@ export default function CalendarPage() {
     };
   }, [currentDate, view]);
 
-  // ── Fetch events ────────────────────────────────────────────
-  const { data: events = [], isLoading } = useQuery({
+  // ── Fetch user events ──────────────────────────────────────
+  const { data: userEvents = [], isLoading: isLoadingUser } = useQuery({
     queryKey: ["calendarEvents", queryRange.start, queryRange.end],
     queryFn: () => api.calendarEvents.list(queryRange.start, queryRange.end),
   });
+
+  // ── Fetch GA legislative events from Open States ────────────
+  const { data: legEvents = [], isLoading: isLoadingLeg } = useQuery({
+    queryKey: ["legEvents", queryRange.start, queryRange.end],
+    queryFn: () => fetchGAEvents(queryRange.start, queryRange.end),
+    staleTime: 5 * 60 * 1000, // cache 5 min
+    retry: 1,
+  });
+
+  const isLoading = isLoadingUser || isLoadingLeg;
+
+  // ── Merge events ────────────────────────────────────────────
+  const events = useMemo(() => {
+    const merged = [...userEvents];
+    if (showLegislative) merged.push(...legEvents);
+    // Sort by start_time
+    return merged.sort(
+      (a, b) =>
+        new Date(a.start_time).getTime() - new Date(b.start_time).getTime(),
+    );
+  }, [userEvents, legEvents, showLegislative]);
 
   // ── Mutations ───────────────────────────────────────────────
   /** @type {import("@tanstack/react-query").UseMutationResult} */
@@ -223,6 +260,11 @@ export default function CalendarPage() {
   }, []);
 
   const openEditEvent = useCallback((ev) => {
+    // Legislative events are read-only — show detail modal instead
+    if (ev._source === "openstates") {
+      setLegEventDetail(ev);
+      return;
+    }
     setEditingEvent(ev);
     setFormData({
       title: ev.title,
@@ -306,7 +348,7 @@ export default function CalendarPage() {
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {["month", "week", "day"].map((v) => (
             <Button
               key={v}
@@ -320,8 +362,26 @@ export default function CalendarPage() {
           ))}
           <Button
             size="sm"
+            variant={showLegislative ? "default" : "outline"}
+            onClick={() => setShowLegislative((v) => !v)}
+            className={showLegislative ? "bg-amber-600 hover:bg-amber-700" : ""}
+            title={
+              showLegislative
+                ? "Hide GA legislature events"
+                : "Show GA legislature events"
+            }
+          >
+            <Landmark className="w-4 h-4 mr-1" />
+            {showLegislative ? (
+              <Eye className="w-3.5 h-3.5" />
+            ) : (
+              <EyeOff className="w-3.5 h-3.5" />
+            )}
+          </Button>
+          <Button
+            size="sm"
             onClick={() => openNewEvent(new Date())}
-            className="ml-2"
+            className="ml-1"
           >
             <Plus className="w-4 h-4 mr-1" /> Event
           </Button>
@@ -554,6 +614,12 @@ export default function CalendarPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Legislative Event Detail (read-only) ────────────── */}
+      <LegislativeEventModal
+        event={legEventDetail}
+        onClose={() => setLegEventDetail(null)}
+      />
     </div>
   );
 }
@@ -637,21 +703,23 @@ function MonthView({
               <div className="space-y-0.5 overflow-hidden">
                 {dayEvents.slice(0, 3).map((ev) => {
                   const cc = getColorClasses(ev.color);
+                  const isLeg = ev._source === "openstates";
                   return (
                     <button
                       key={ev.id}
-                      className={`w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate border ${cc.light} hover:opacity-80 transition-opacity`}
+                      className={`w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate border ${cc.light} hover:brightness-95 transition-all flex items-center gap-0.5`}
                       onClick={(e) => {
                         e.stopPropagation();
                         onEditEvent(ev);
                       }}
                     >
-                      {!ev.all_day && (
+                      {isLeg && <Landmark className="w-3 h-3 shrink-0" />}
+                      {!ev.all_day && !isLeg && (
                         <span className="font-medium mr-1">
                           {format(parseISO(ev.start_time), "h:mm")}
                         </span>
                       )}
-                      {ev.title}
+                      <span className="truncate">{ev.title}</span>
                     </button>
                   );
                 })}
@@ -736,7 +804,7 @@ function WeekView({ currentDate, events, onNewEvent, onEditEvent }) {
                       return (
                         <button
                           key={ev.id}
-                          className={`absolute left-0.5 right-0.5 rounded px-1 text-[11px] leading-tight overflow-hidden border ${cc.light} hover:opacity-80 z-10`}
+                          className={`absolute left-0.5 right-0.5 rounded px-1 text-[11px] leading-tight overflow-hidden border ${cc.light} hover:brightness-95 hover:shadow-sm z-10`}
                           style={{
                             top: `${topOffset}px`,
                             height: `${heightPx}px`,
@@ -746,7 +814,10 @@ function WeekView({ currentDate, events, onNewEvent, onEditEvent }) {
                             onEditEvent(ev);
                           }}
                         >
-                          <span className="font-semibold truncate block">
+                          <span className="font-semibold truncate block flex items-center gap-0.5">
+                            {ev._source === "openstates" && (
+                              <Landmark className="w-3 h-3 shrink-0" />
+                            )}
                             {ev.title}
                           </span>
                           {mins >= 60 && (
@@ -792,12 +863,14 @@ function DayView({ currentDate, events, onNewEvent, onEditEvent }) {
           <div className="flex flex-wrap gap-1 mt-1">
             {allDayEvents.map((ev) => {
               const cc = getColorClasses(ev.color);
+              const isLeg = ev._source === "openstates";
               return (
                 <button
                   key={ev.id}
-                  className={`text-xs px-2 py-1 rounded border ${cc.light} hover:opacity-80`}
+                  className={`text-xs px-2 py-1 rounded border ${cc.light} hover:brightness-95 flex items-center gap-1`}
                   onClick={() => onEditEvent(ev)}
                 >
+                  {isLeg && <Landmark className="w-3 h-3 shrink-0" />}
                   {ev.title}
                 </button>
               );
@@ -835,7 +908,7 @@ function DayView({ currentDate, events, onNewEvent, onEditEvent }) {
                     return (
                       <button
                         key={ev.id}
-                        className={`absolute left-1 right-1 rounded-lg px-2 py-1 text-xs overflow-hidden border ${cc.light} hover:opacity-80 z-10 text-left`}
+                        className={`absolute left-1 right-1 rounded-lg px-2 py-1 text-xs overflow-hidden border ${cc.light} hover:brightness-95 hover:shadow-sm z-10 text-left`}
                         style={{
                           top: `${topOffset}px`,
                           height: `${heightPx}px`,
@@ -845,7 +918,12 @@ function DayView({ currentDate, events, onNewEvent, onEditEvent }) {
                           onEditEvent(ev);
                         }}
                       >
-                        <div className="font-semibold truncate">{ev.title}</div>
+                        <div className="font-semibold truncate flex items-center gap-1">
+                          {ev._source === "openstates" && (
+                            <Landmark className="w-3.5 h-3.5 shrink-0" />
+                          )}
+                          {ev.title}
+                        </div>
                         <div className="flex items-center gap-2 text-[10px] opacity-70 mt-0.5">
                           <span className="flex items-center gap-0.5">
                             <Clock className="w-3 h-3" />
@@ -874,5 +952,195 @@ function DayView({ currentDate, events, onNewEvent, onEditEvent }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Legislative Event Detail Modal (read-only)
+// ═══════════════════════════════════════════════════════════════
+function LegislativeEventModal({ event, onClose }) {
+  if (!event) return null;
+
+  const startFormatted = (() => {
+    try {
+      return event.all_day
+        ? format(parseISO(event.start_time), "MMMM d, yyyy")
+        : format(parseISO(event.start_time), "MMMM d, yyyy 'at' h:mm a");
+    } catch {
+      return event.start_time;
+    }
+  })();
+
+  const endFormatted = (() => {
+    try {
+      return event.all_day
+        ? format(parseISO(event.end_time), "MMMM d, yyyy")
+        : format(parseISO(event.end_time), "h:mm a");
+    } catch {
+      return event.end_time;
+    }
+  })();
+
+  return (
+    <Dialog open={true} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-[540px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+              <Landmark className="w-5 h-5 text-amber-700" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <DialogTitle className="text-base">{event.title}</DialogTitle>
+              <DialogDescription className="flex items-center gap-2 mt-0.5">
+                <Badge
+                  variant="outline"
+                  className="text-[10px] uppercase bg-amber-50 text-amber-800 border-amber-300"
+                >
+                  {event.classification || "Legislative Event"}
+                </Badge>
+                <span className="text-xs text-slate-500">
+                  Georgia General Assembly
+                </span>
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Date & Time */}
+          <div className="flex items-start gap-3 text-sm">
+            <Clock className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="font-medium text-slate-800">{startFormatted}</p>
+              {endFormatted && (
+                <p className="text-slate-500">to {endFormatted}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Location */}
+          {event.location && (
+            <div className="flex items-start gap-3 text-sm">
+              <MapPin className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-medium text-slate-800">{event.location}</p>
+                {event.location_url && (
+                  <a
+                    href={event.location_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:underline flex items-center gap-1 mt-0.5"
+                  >
+                    View location <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Description */}
+          {event.description && (
+            <div className="text-sm text-slate-600 bg-slate-50 rounded-lg p-3">
+              {event.description}
+            </div>
+          )}
+
+          {/* Participants (committees, speakers) */}
+          {event.participants?.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5" /> Participants
+              </h4>
+              <div className="flex flex-wrap gap-1.5">
+                {event.participants.map((p, i) => (
+                  <Badge
+                    key={i}
+                    variant="outline"
+                    className="text-xs bg-slate-50"
+                  >
+                    {p.name}
+                    {p.role && (
+                      <span className="text-slate-400 ml-1">({p.role})</span>
+                    )}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Associated Bills */}
+          {event.bills?.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5" /> Associated Bills (
+                {event.bills.length})
+              </h4>
+              <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                {event.bills.map((bill, i) => (
+                  <div
+                    key={i}
+                    className="flex items-start gap-2 p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="w-6 h-6 rounded bg-blue-100 flex items-center justify-center shrink-0 mt-0.5">
+                      <FileText className="w-3.5 h-3.5 text-blue-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-800">
+                        {bill.identifier}
+                      </p>
+                      {bill.note && (
+                        <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">
+                          {bill.note}
+                        </p>
+                      )}
+                    </div>
+                    {bill.id && (
+                      <a
+                        href={`https://v3.openstates.org/bills/${encodeURIComponent(bill.id)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 shrink-0"
+                        title="View on Open States"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Links */}
+          {event.links?.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                Links
+              </h4>
+              <div className="space-y-1">
+                {event.links.map((link, i) => (
+                  <a
+                    key={i}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-sm text-blue-600 hover:underline"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    {link.note || link.url}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
