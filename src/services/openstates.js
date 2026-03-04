@@ -49,7 +49,7 @@ async function get(path, params = {}, retries = 2) {
     retries > 0 &&
     [400, 429, 500, 502, 503, 504].includes(res.status)
   ) {
-    const delay = res.status === 429 ? 2000 : 1000;
+    const delay = res.status === 429 ? 4000 : 1500;
     console.warn(
       `Open States API ${res.status} — retrying in ${delay}ms (${retries} left)`,
     );
@@ -98,16 +98,23 @@ export async function fetchGAEvents(startDate, endDate) {
 
   // Paginate through all results
   while (true) {
-    const data = await get("/events", {
-      jurisdiction: GA_JURISDICTION,
-      after: startDate ? startDate.slice(0, 10) : undefined,
-      before: endDate ? endDate.slice(0, 10) : undefined,
-      per_page: String(perPage),
-      page: String(page),
-      // Only request the fields we use: links for URLs, agenda for bills,
-      // participants for committee/speaker info.
-      include: ["links", "agenda", "participants"],
-    });
+    let data;
+    try {
+      data = await get("/events", {
+        jurisdiction: GA_JURISDICTION,
+        after: startDate ? startDate.slice(0, 10) : undefined,
+        before: endDate ? endDate.slice(0, 10) : undefined,
+        per_page: String(perPage),
+        page: String(page),
+        // Only request the fields we use: links for URLs, agenda for bills,
+        // participants for committee/speaker info.
+        include: ["links", "agenda", "participants"],
+      });
+    } catch (err) {
+      // On rate-limit or network error mid-pagination, return what we have so far
+      console.warn("Open States pagination stopped:", err.message);
+      break;
+    }
 
     if (!data || !data.results || data.results.length === 0) break;
 
@@ -117,8 +124,8 @@ export async function fetchGAEvents(startDate, endDate) {
     if (data.results.length < perPage) break;
     page++;
 
-    // Safety: cap at 10 pages (200 events per range)
-    if (page > 10) break;
+    // Safety: cap at 5 pages (100 events per range) to avoid rate limits
+    if (page > 5) break;
   }
 
   return allEvents.map(normalizeEvent);
@@ -195,6 +202,14 @@ function normalizeEvent(ev) {
     startTime.length <= 10 ||
     startTime.endsWith("T00:00:00+00:00");
 
+  // Determine chamber color from event name
+  const nameLower = (ev.name ?? "").toLowerCase();
+  const eventColor = nameLower.startsWith("senate")
+    ? "leg-senate"
+    : nameLower.startsWith("house")
+      ? "leg-house"
+      : "gold";
+
   return {
     // Core fields — compatible with our calendar event shape
     id: ev.id,
@@ -203,7 +218,7 @@ function normalizeEvent(ev) {
     start_time: startTime,
     end_time: endTime,
     all_day: allDay,
-    color: "gold", // special legislative colour
+    color: eventColor,
     location: locationName,
     location_url: locationUrl,
 

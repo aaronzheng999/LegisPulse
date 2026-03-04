@@ -1,4 +1,11 @@
-import { useState, useMemo, useCallback } from "react";
+import {
+  useState,
+  useMemo,
+  useCallback,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+} from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/apiClient";
 import { fetchGAEvents } from "@/services/openstates";
@@ -112,6 +119,18 @@ const EVENT_COLORS = [
     bg: "bg-amber-600",
     light: "bg-amber-50 text-amber-900 border-amber-400",
   },
+  {
+    value: "leg-senate",
+    label: "Senate",
+    bg: "bg-blue-700",
+    light: "bg-blue-50 text-blue-900 border-blue-400",
+  },
+  {
+    value: "leg-house",
+    label: "House",
+    bg: "bg-emerald-600",
+    light: "bg-emerald-50 text-emerald-900 border-emerald-400",
+  },
 ];
 
 const getColorClasses = (color) =>
@@ -148,13 +167,31 @@ export default function CalendarPage() {
   const [formData, setFormData] = useState(makeDefaultEvent());
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [showLegislative, setShowLegislative] = useState(true);
+  const [chamberFilter, setChamberFilter] = useState("all"); // all | senate | house
   const [legEventDetail, setLegEventDetail] = useState(null);
+  // For month view: the label shown in the header, updated by scroll
+  const [scrollMonthLabel, setScrollMonthLabel] = useState(
+    format(new Date(), "MMMM yyyy"),
+  );
+  const pageScrollRef = useRef(null);
+  const stickyHeaderRef = useRef(null);
+  // Track how many months MonthView is currently showing
+  const [monthRange, setMonthRange] = useState({ before: 3, after: 3 });
 
   // ── Date range for queries ──────────────────────────────────
   const queryRange = useMemo(() => {
     if (view === "month") {
-      const ms = startOfWeek(startOfMonth(currentDate), { weekStartsOn: 0 });
-      const me = endOfWeek(endOfMonth(currentDate), { weekStartsOn: 0 });
+      // Quantize range to 6-month boundaries to avoid constant query-key changes
+      // during infinite scroll expansion
+      const quantize = (n) => Math.ceil(n / 6) * 6;
+      const before = quantize(monthRange.before);
+      const after = quantize(monthRange.after);
+      const ms = startOfWeek(startOfMonth(addMonths(currentDate, -before)), {
+        weekStartsOn: 0,
+      });
+      const me = endOfWeek(endOfMonth(addMonths(currentDate, after)), {
+        weekStartsOn: 0,
+      });
       return { start: ms.toISOString(), end: me.toISOString() };
     }
     if (view === "week") {
@@ -166,20 +203,31 @@ export default function CalendarPage() {
       start: startOfDay(currentDate).toISOString(),
       end: endOfDay(currentDate).toISOString(),
     };
-  }, [currentDate, view]);
+  }, [currentDate, view, monthRange]);
+
+  // Legislative events: fixed ±12-month window (doesn't expand with scroll)
+  const legQueryRange = useMemo(() => {
+    const ms = startOfMonth(addMonths(new Date(), -12));
+    const me = endOfMonth(addMonths(new Date(), 12));
+    return { start: ms.toISOString(), end: me.toISOString() };
+  }, []);
 
   // ── Fetch user events ──────────────────────────────────────
   const { data: userEvents = [], isLoading: isLoadingUser } = useQuery({
     queryKey: ["calendarEvents", queryRange.start, queryRange.end],
     queryFn: () => api.calendarEvents.list(queryRange.start, queryRange.end),
+    placeholderData: (prev) => prev, // keep previous data while refetching
   });
 
   // ── Fetch GA legislative events from Open States ────────────
   const { data: legEvents = [], isLoading: isLoadingLeg } = useQuery({
-    queryKey: ["legEvents", queryRange.start, queryRange.end],
-    queryFn: () => fetchGAEvents(queryRange.start, queryRange.end),
-    staleTime: 5 * 60 * 1000, // cache 5 min
-    retry: 1,
+    queryKey: ["legEvents", legQueryRange.start, legQueryRange.end],
+    queryFn: () => fetchGAEvents(legQueryRange.start, legQueryRange.end),
+    staleTime: 30 * 60 * 1000, // 30 min — legislative events rarely change
+    gcTime: 60 * 60 * 1000, // keep in cache 1 hour
+    retry: 2,
+    retryDelay: (attempt) => Math.min(3000 * 2 ** attempt, 15000),
+    placeholderData: (prev) => prev, // keep previous data while refetching
   });
 
   const isLoading = isLoadingUser || isLoadingLeg;
@@ -187,13 +235,31 @@ export default function CalendarPage() {
   // ── Merge events ────────────────────────────────────────────
   const events = useMemo(() => {
     const merged = [...userEvents];
-    if (showLegislative) merged.push(...legEvents);
+    if (showLegislative) {
+      const filtered =
+        chamberFilter === "all"
+          ? legEvents
+          : legEvents.filter((ev) => {
+              const t = (ev.title ?? "").toLowerCase();
+              return chamberFilter === "senate"
+                ? t.startsWith("senate")
+                : t.startsWith("house");
+            });
+      merged.push(...filtered);
+    }
     // Sort by start_time
     return merged.sort(
       (a, b) =>
         new Date(a.start_time).getTime() - new Date(b.start_time).getTime(),
     );
-  }, [userEvents, legEvents, showLegislative]);
+  }, [userEvents, legEvents, showLegislative, chamberFilter]);
+
+  const handleRangeExpand = useCallback((before, after) => {
+    setMonthRange((prev) => {
+      if (prev.before === before && prev.after === after) return prev;
+      return { before, after };
+    });
+  }, []);
 
   // ── Mutations ───────────────────────────────────────────────
   /** @type {import("@tanstack/react-query").UseMutationResult} */
@@ -300,346 +366,501 @@ export default function CalendarPage() {
   }, [formData, editingEvent, createMut, updateMut, toast]);
 
   // ── Navigation ──────────────────────────────────────────────
-  const goNext = () => {
-    if (view === "month") setCurrentDate((d) => addMonths(d, 1));
-    else if (view === "week") setCurrentDate((d) => addWeeks(d, 1));
+  const goNext = useCallback(() => {
+    if (view === "month") {
+      setCurrentDate((d) => {
+        const next = addMonths(d, 1);
+        setScrollMonthLabel(format(next, "MMMM yyyy"));
+        return next;
+      });
+    } else if (view === "week") setCurrentDate((d) => addWeeks(d, 1));
     else setCurrentDate((d) => addDays(d, 1));
-  };
-  const goPrev = () => {
-    if (view === "month") setCurrentDate((d) => subMonths(d, 1));
-    else if (view === "week") setCurrentDate((d) => subWeeks(d, 1));
+  }, [view]);
+  const goPrev = useCallback(() => {
+    if (view === "month") {
+      setCurrentDate((d) => {
+        const prev = subMonths(d, 1);
+        setScrollMonthLabel(format(prev, "MMMM yyyy"));
+        return prev;
+      });
+    } else if (view === "week") setCurrentDate((d) => subWeeks(d, 1));
     else setCurrentDate((d) => subDays(d, 1));
+  }, [view]);
+  const goToday = () => {
+    const today = new Date();
+    setCurrentDate(today);
+    if (view === "month") setScrollMonthLabel(format(today, "MMMM yyyy"));
   };
-  const goToday = () => setCurrentDate(new Date());
 
   // ── Title text ──────────────────────────────────────────────
   const headerTitle = useMemo(() => {
-    if (view === "month") return format(currentDate, "MMMM yyyy");
+    if (view === "month") return scrollMonthLabel;
     if (view === "week") {
       const ws = startOfWeek(currentDate, { weekStartsOn: 0 });
       const we = endOfWeek(currentDate, { weekStartsOn: 0 });
       return `${format(ws, "MMM d")} – ${format(we, "MMM d, yyyy")}`;
     }
     return format(currentDate, "EEEE, MMMM d, yyyy");
-  }, [currentDate, view]);
+  }, [currentDate, view, scrollMonthLabel]);
 
   // ═══════════════════════════════════════════════════════════════
   return (
-    <div className="h-full flex flex-col bg-white">
-      {/* ── Header ────────────────────────────────────────────── */}
-      <div className="border-b border-slate-200 px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="flex items-center gap-2">
-          <CalendarDays className="w-6 h-6 text-blue-600" />
-          <h1 className="text-xl font-bold text-slate-900">Calendar</h1>
-        </div>
-
-        <div className="flex items-center gap-2 sm:ml-auto">
-          <Button variant="outline" size="sm" onClick={goPrev}>
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={goToday}>
-            Today
-          </Button>
-          <Button variant="outline" size="sm" onClick={goNext}>
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-          <span className="text-sm font-semibold text-slate-700 min-w-[160px] text-center hidden sm:inline">
-            {headerTitle}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          {["month", "week", "day"].map((v) => (
-            <Button
-              key={v}
-              size="sm"
-              variant={view === v ? "default" : "outline"}
-              onClick={() => setView(v)}
-              className="capitalize"
-            >
-              {v}
-            </Button>
-          ))}
-          <Button
-            size="sm"
-            variant={showLegislative ? "default" : "outline"}
-            onClick={() => setShowLegislative((v) => !v)}
-            className={showLegislative ? "bg-amber-600 hover:bg-amber-700" : ""}
-            title={
-              showLegislative
-                ? "Hide GA legislature events"
-                : "Show GA legislature events"
-            }
+    <div className="h-full relative">
+      <div
+        ref={pageScrollRef}
+        className={`h-full flex flex-col ${view === "month" ? "overflow-y-auto" : "bg-white"}`}
+      >
+        {/* ── Header ────────────────────────────────────────────── */}
+        <div
+          ref={stickyHeaderRef}
+          className={view === "month" ? "sticky top-0 z-30" : ""}
+        >
+          <div
+            className={`border-b border-slate-200/50 px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center gap-3 ${view === "month" ? "bg-white/60 backdrop-blur-xl backdrop-saturate-150 shadow-[0_1px_3px_rgba(0,0,0,0.08)]" : "bg-white"}`}
           >
-            <Landmark className="w-4 h-4 mr-1" />
-            {showLegislative ? (
-              <Eye className="w-3.5 h-3.5" />
-            ) : (
-              <EyeOff className="w-3.5 h-3.5" />
-            )}
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => openNewEvent(new Date())}
-            className="ml-1"
-          >
-            <Plus className="w-4 h-4 mr-1" /> Event
-          </Button>
-        </div>
-      </div>
-
-      {/* Mobile title */}
-      <div className="sm:hidden px-4 py-2 text-center text-sm font-semibold text-slate-700 border-b border-slate-100">
-        {headerTitle}
-      </div>
-
-      {/* ── View body ─────────────────────────────────────────── */}
-      <div className="flex-1 overflow-auto min-h-0">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
-          </div>
-        ) : view === "month" ? (
-          <MonthView
-            currentDate={currentDate}
-            events={events}
-            onDayClick={(d) => {
-              setCurrentDate(d);
-              setView("day");
-            }}
-            onNewEvent={openNewEvent}
-            onEditEvent={openEditEvent}
-          />
-        ) : view === "week" ? (
-          <WeekView
-            currentDate={currentDate}
-            events={events}
-            onNewEvent={openNewEvent}
-            onEditEvent={openEditEvent}
-          />
-        ) : (
-          <DayView
-            currentDate={currentDate}
-            events={events}
-            onNewEvent={openNewEvent}
-            onEditEvent={openEditEvent}
-          />
-        )}
-      </div>
-
-      {/* ── Event Modal ───────────────────────────────────────── */}
-      <Dialog open={modalOpen} onOpenChange={(o) => (!o ? closeModal() : null)}>
-        <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {editingEvent ? "Edit Event" : "New Event"}
-            </DialogTitle>
-            <DialogDescription>
-              {editingEvent
-                ? "Update event details below."
-                : "Fill in the details to create a new event."}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            {/* Title */}
-            <div className="space-y-2">
-              <Label htmlFor="ev-title">Title</Label>
-              <Input
-                id="ev-title"
-                placeholder="Event title"
-                value={formData.title}
-                onChange={(e) =>
-                  setFormData((f) => ({ ...f, title: e.target.value }))
+            <div className="flex items-center gap-2">
+              <CalendarDays className="w-6 h-6 text-blue-600" />
+              <h1 className="text-xl font-bold text-slate-900">Calendar</h1>
+              <Button
+                size="sm"
+                variant={showLegislative ? "default" : "outline"}
+                onClick={() => setShowLegislative((v) => !v)}
+                className={
+                  showLegislative
+                    ? "bg-amber-600 hover:bg-amber-700 ml-1"
+                    : "ml-1"
                 }
-                autoFocus
-              />
-            </div>
-
-            {/* All-day toggle */}
-            <div className="flex items-center gap-3">
-              <Switch
-                checked={formData.all_day}
-                onCheckedChange={(v) =>
-                  setFormData((f) => ({ ...f, all_day: v }))
+                title={
+                  showLegislative
+                    ? "Hide GA legislature events"
+                    : "Show GA legislature events"
                 }
-              />
-              <Label className="mb-0">All-day event</Label>
+              >
+                <Landmark className="w-4 h-4 mr-1" />
+                {showLegislative ? (
+                  <Eye className="w-3.5 h-3.5" />
+                ) : (
+                  <EyeOff className="w-3.5 h-3.5" />
+                )}
+              </Button>
             </div>
 
-            {/* Dates */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Start</Label>
-                <Input
-                  type={formData.all_day ? "date" : "datetime-local"}
-                  value={
-                    formData.all_day
-                      ? formData.start_time.slice(0, 10)
-                      : formData.start_time
-                  }
-                  onChange={(e) =>
-                    setFormData((f) => ({
-                      ...f,
-                      start_time: formData.all_day
-                        ? e.target.value + "T00:00"
-                        : e.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>End</Label>
-                <Input
-                  type={formData.all_day ? "date" : "datetime-local"}
-                  value={
-                    formData.all_day
-                      ? formData.end_time.slice(0, 10)
-                      : formData.end_time
-                  }
-                  onChange={(e) =>
-                    setFormData((f) => ({
-                      ...f,
-                      end_time: formData.all_day
-                        ? e.target.value + "T23:59"
-                        : e.target.value,
-                    }))
-                  }
-                />
-              </div>
+            <div className="flex items-center gap-2 sm:ml-auto">
+              {view !== "month" && (
+                <>
+                  <Button variant="outline" size="sm" onClick={goPrev}>
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                </>
+              )}
+              <Button variant="outline" size="sm" onClick={goToday}>
+                Today
+              </Button>
+              {view !== "month" && (
+                <>
+                  <Button variant="outline" size="sm" onClick={goNext}>
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </>
+              )}
+              <span className="text-sm font-semibold text-slate-700 min-w-[160px] text-center hidden sm:inline">
+                {headerTitle}
+              </span>
             </div>
 
-            {/* Location */}
-            <div className="space-y-2">
-              <Label>Location</Label>
-              <Input
-                placeholder="Add location"
-                value={formData.location}
-                onChange={(e) =>
-                  setFormData((f) => ({ ...f, location: e.target.value }))
-                }
-              />
-            </div>
-
-            {/* Description */}
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Textarea
-                placeholder="Add description"
-                rows={3}
-                value={formData.description}
-                onChange={(e) =>
-                  setFormData((f) => ({ ...f, description: e.target.value }))
-                }
-              />
-            </div>
-
-            {/* Color */}
-            <div className="space-y-2">
-              <Label>Color</Label>
-              <div className="flex gap-2 flex-wrap">
-                {EVENT_COLORS.map((c) => (
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center border rounded-md overflow-hidden">
+                {["month", "week", "day"].map((v) => (
                   <button
-                    key={c.value}
-                    type="button"
-                    className={`w-7 h-7 rounded-full ${c.bg} transition-all ${
-                      formData.color === c.value
-                        ? "ring-2 ring-offset-2 ring-slate-900 scale-110"
-                        : "opacity-60 hover:opacity-100"
+                    key={v}
+                    onClick={() => setView(v)}
+                    className={`w-16 py-1.5 text-xs font-medium capitalize transition-colors text-center ${
+                      view === v
+                        ? "bg-slate-900 text-white"
+                        : "bg-white text-slate-600 hover:bg-slate-100"
                     }`}
-                    onClick={() =>
-                      setFormData((f) => ({ ...f, color: c.value }))
-                    }
-                    title={c.label}
-                  />
+                  >
+                    {v}
+                  </button>
                 ))}
               </div>
+              {showLegislative && (
+                <div className="flex items-center border rounded-md overflow-hidden">
+                  {["all", "senate", "house"].map((ch) => (
+                    <button
+                      key={ch}
+                      onClick={() => setChamberFilter(ch)}
+                      className={`px-2.5 py-1 text-xs font-medium capitalize transition-colors ${
+                        chamberFilter === ch
+                          ? ch === "senate"
+                            ? "bg-blue-600 text-white"
+                            : ch === "house"
+                              ? "bg-green-600 text-white"
+                              : "bg-amber-600 text-white"
+                          : "bg-white text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      {ch}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <Button
+                size="sm"
+                onClick={() => openNewEvent(new Date())}
+                className="ml-1"
+              >
+                <Plus className="w-4 h-4 mr-1" /> Event
+              </Button>
             </div>
           </div>
 
-          <DialogFooter className="gap-2">
-            {editingEvent && (
+          {/* Day-of-week row – part of the sticky header block in month view */}
+          {view === "month" && (
+            <div className="grid grid-cols-7 border-b border-slate-200/50 bg-white/60 backdrop-blur-xl backdrop-saturate-150">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                <div
+                  key={d}
+                  className="py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide"
+                >
+                  {d}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Mobile title */}
+        <div className="sm:hidden px-4 py-2 text-center text-sm font-semibold text-slate-700 border-b border-slate-100">
+          {headerTitle}
+        </div>
+
+        {/* ── View body ─────────────────────────────────────────── */}
+        <div
+          className={
+            view === "month" ? "min-h-0" : "flex-1 overflow-auto min-h-0"
+          }
+        >
+          {isLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
+            </div>
+          ) : view === "month" ? (
+            <MonthView
+              currentDate={currentDate}
+              events={events}
+              onVisibleMonthChange={setScrollMonthLabel}
+              scrollContainerRef={pageScrollRef}
+              stickyHeaderRef={stickyHeaderRef}
+              onDayClick={(d) => {
+                setCurrentDate(d);
+                setView("day");
+              }}
+              onNewEvent={openNewEvent}
+              onEditEvent={openEditEvent}
+              onRangeExpand={handleRangeExpand}
+            />
+          ) : view === "week" ? (
+            <WeekView
+              currentDate={currentDate}
+              events={events}
+              onNewEvent={openNewEvent}
+              onEditEvent={openEditEvent}
+            />
+          ) : (
+            <DayView
+              currentDate={currentDate}
+              events={events}
+              onNewEvent={openNewEvent}
+              onEditEvent={openEditEvent}
+            />
+          )}
+        </div>
+
+        {/* ── Event Modal ───────────────────────────────────────── */}
+        <Dialog
+          open={modalOpen}
+          onOpenChange={(o) => (!o ? closeModal() : null)}
+        >
+          <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
+                {editingEvent ? "Edit Event" : "New Event"}
+              </DialogTitle>
+              <DialogDescription>
+                {editingEvent
+                  ? "Update event details below."
+                  : "Fill in the details to create a new event."}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              {/* Title */}
+              <div className="space-y-2">
+                <Label htmlFor="ev-title">Title</Label>
+                <Input
+                  id="ev-title"
+                  placeholder="Event title"
+                  value={formData.title}
+                  onChange={(e) =>
+                    setFormData((f) => ({ ...f, title: e.target.value }))
+                  }
+                  autoFocus
+                />
+              </div>
+
+              {/* All-day toggle */}
+              <div className="flex items-center gap-3">
+                <Switch
+                  checked={formData.all_day}
+                  onCheckedChange={(v) =>
+                    setFormData((f) => ({ ...f, all_day: v }))
+                  }
+                />
+                <Label className="mb-0">All-day event</Label>
+              </div>
+
+              {/* Dates */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Start</Label>
+                  <Input
+                    type={formData.all_day ? "date" : "datetime-local"}
+                    value={
+                      formData.all_day
+                        ? formData.start_time.slice(0, 10)
+                        : formData.start_time
+                    }
+                    onChange={(e) =>
+                      setFormData((f) => ({
+                        ...f,
+                        start_time: formData.all_day
+                          ? e.target.value + "T00:00"
+                          : e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>End</Label>
+                  <Input
+                    type={formData.all_day ? "date" : "datetime-local"}
+                    value={
+                      formData.all_day
+                        ? formData.end_time.slice(0, 10)
+                        : formData.end_time
+                    }
+                    onChange={(e) =>
+                      setFormData((f) => ({
+                        ...f,
+                        end_time: formData.all_day
+                          ? e.target.value + "T23:59"
+                          : e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+
+              {/* Location */}
+              <div className="space-y-2">
+                <Label>Location</Label>
+                <Input
+                  placeholder="Add location"
+                  value={formData.location}
+                  onChange={(e) =>
+                    setFormData((f) => ({ ...f, location: e.target.value }))
+                  }
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Textarea
+                  placeholder="Add description"
+                  rows={3}
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData((f) => ({ ...f, description: e.target.value }))
+                  }
+                />
+              </div>
+
+              {/* Color */}
+              <div className="space-y-2">
+                <Label>Color</Label>
+                <div className="flex gap-2 flex-wrap">
+                  {EVENT_COLORS.map((c) => (
+                    <button
+                      key={c.value}
+                      type="button"
+                      className={`w-7 h-7 rounded-full ${c.bg} transition-all ${
+                        formData.color === c.value
+                          ? "ring-2 ring-offset-2 ring-slate-900 scale-110"
+                          : "opacity-60 hover:opacity-100"
+                      }`}
+                      onClick={() =>
+                        setFormData((f) => ({ ...f, color: c.value }))
+                      }
+                      title={c.label}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2">
+              {editingEvent && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setDeleteConfirmId(editingEvent.id)}
+                  disabled={deleteMut.isPending}
+                >
+                  <Trash2 className="w-4 h-4 mr-1" /> Delete
+                </Button>
+              )}
+              <div className="flex-1" />
+              <Button variant="outline" size="sm" onClick={closeModal}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSave}
+                disabled={createMut.isPending || updateMut.isPending}
+              >
+                {editingEvent ? "Save Changes" : "Create Event"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Delete Confirmation ───────────────────────────────── */}
+        <Dialog
+          open={!!deleteConfirmId}
+          onOpenChange={(o) => !o && setDeleteConfirmId(null)}
+        >
+          <DialogContent className="sm:max-w-[360px]">
+            <DialogHeader>
+              <DialogTitle>Delete Event</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete this event? This cannot be
+                undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDeleteConfirmId(null)}
+              >
+                Cancel
+              </Button>
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={() => setDeleteConfirmId(editingEvent.id)}
+                onClick={() => deleteMut.mutate(deleteConfirmId)}
                 disabled={deleteMut.isPending}
               >
-                <Trash2 className="w-4 h-4 mr-1" /> Delete
+                Delete
               </Button>
-            )}
-            <div className="flex-1" />
-            <Button variant="outline" size="sm" onClick={closeModal}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={createMut.isPending || updateMut.isPending}
-            >
-              {editingEvent ? "Save Changes" : "Create Event"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-      {/* ── Delete Confirmation ───────────────────────────────── */}
-      <Dialog
-        open={!!deleteConfirmId}
-        onOpenChange={(o) => !o && setDeleteConfirmId(null)}
-      >
-        <DialogContent className="sm:max-w-[360px]">
-          <DialogHeader>
-            <DialogTitle>Delete Event</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this event? This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setDeleteConfirmId(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => deleteMut.mutate(deleteConfirmId)}
-              disabled={deleteMut.isPending}
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {/* ── Legislative Event Detail (read-only) ────────────── */}
+        <LegislativeEventModal
+          event={legEventDetail}
+          onClose={() => setLegEventDetail(null)}
+        />
+      </div>
 
-      {/* ── Legislative Event Detail (read-only) ────────────── */}
-      <LegislativeEventModal
-        event={legEventDetail}
-        onClose={() => setLegEventDetail(null)}
-      />
+      {/* Bottom frosted blur overlay – positioned over the scroll container */}
+      {view === "month" && (
+        <div
+          className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none"
+          style={{
+            height: "70px",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            WebkitMaskImage:
+              "linear-gradient(to bottom, transparent 0%, black 100%)",
+            maskImage: "linear-gradient(to bottom, transparent 0%, black 100%)",
+          }}
+        />
+      )}
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Month View
+// Overlap-layout helper: assigns column index + total columns to
+// concurrent events so they render side-by-side like Google Calendar.
+// ═══════════════════════════════════════════════════════════════
+function layoutOverlappingEvents(events) {
+  if (!events.length) return [];
+
+  // Sort by start time, then by duration descending
+  const sorted = [...events]
+    .map((ev) => {
+      const start = parseISO(ev.start_time).getTime();
+      const end = parseISO(ev.end_time).getTime();
+      return { ev, start, end: Math.max(end, start + 1) };
+    })
+    .sort((a, b) => a.start - b.start || b.end - b.start - (a.end - a.start));
+
+  // Assign columns using a greedy left-to-right approach
+  const columns = []; // each column stores the end-time of its last event
+  const placed = sorted.map(({ ev, start, end }) => {
+    let col = columns.findIndex((colEnd) => colEnd <= start);
+    if (col === -1) {
+      col = columns.length;
+      columns.push(end);
+    } else {
+      columns[col] = end;
+    }
+    return { ev, col };
+  });
+
+  const totalCols = columns.length;
+  return placed.map(({ ev, col }) => ({ ev, col, totalCols }));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Month View – continuous vertical scroll (Apple Calendar style)
+// Each month fills the viewport; scroll-snap gives page-like feel.
+// Scroll only updates the header label – no month-array re-render.
 // ═══════════════════════════════════════════════════════════════
 function MonthView({
   currentDate,
   events,
+  onVisibleMonthChange,
+  scrollContainerRef,
+  stickyHeaderRef,
   onDayClick,
   onNewEvent,
   onEditEvent,
+  onRangeExpand,
 }) {
-  const monthStart = startOfMonth(currentDate);
-  const monthEnd = endOfMonth(currentDate);
-  const calStart = startOfWeek(monthStart, { weekStartsOn: 0 });
-  const calEnd = endOfWeek(monthEnd, { weekStartsOn: 0 });
-  const days = eachDayOfInterval({ start: calStart, end: calEnd });
+  const INITIAL_BEFORE = 3;
+  const INITIAL_AFTER = 3;
+  const LOAD_MORE = 12; // add 12 months each time we hit an edge
+  const EDGE_PX = 800; // trigger when within 800px of edge
 
+  const [beforeCount, setBeforeCount] = useState(INITIAL_BEFORE);
+  const [afterCount, setAfterCount] = useState(INITIAL_AFTER);
+
+  // months array depends on currentDate + range extents
+  const months = useMemo(() => {
+    const arr = [];
+    for (let i = -beforeCount; i <= afterCount; i++) {
+      arr.push(addMonths(currentDate, i));
+    }
+    return arr;
+  }, [currentDate, beforeCount, afterCount]);
+
+  // Index events by day key for O(1) lookup
   const eventsByDay = useMemo(() => {
     const map = {};
     events.forEach((ev) => {
@@ -650,89 +871,208 @@ function MonthView({
     return map;
   }, [events]);
 
+  const scrollRef = scrollContainerRef;
+  const monthRefs = useRef({});
+  const hasScrolledToCenter = useRef(false);
+  const prevCurrentDate = useRef(currentDate);
+
+  // Scroll the *current* month into view on mount and when currentDate changes
+  useEffect(() => {
+    const curMonthKey = format(currentDate, "yyyy-MM");
+    const dateChanged = prevCurrentDate.current !== currentDate;
+    const needsScroll = !hasScrolledToCenter.current || dateChanged;
+
+    if (needsScroll) {
+      const el = monthRefs.current[curMonthKey];
+      const container = scrollRef.current;
+      if (el && container) {
+        // Account for the sticky header height so the month isn't hidden behind it
+        const headerHeight = stickyHeaderRef?.current?.offsetHeight || 0;
+        const containerRect = container.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const scrollTop =
+          container.scrollTop + (elRect.top - containerRect.top) - headerHeight;
+        container.scrollTo({
+          top: Math.max(0, scrollTop),
+          behavior: dateChanged ? "smooth" : "instant",
+        });
+        hasScrolledToCenter.current = true;
+      }
+      prevCurrentDate.current = currentDate;
+    }
+  }, [currentDate]); // only scroll when the user actively navigates (Today/arrows)
+
+  // Update header label as user scrolls – lightweight, no cascading re-render
+  // Also detect when user is near edges to load more months
+  const visibleMonthRef = useRef(format(currentDate, "MMMM yyyy"));
+  const pendingScrollFix = useRef(null); // stores previous scrollHeight when prepending
+
+  // Restore scroll position after prepending months (runs synchronously before paint)
+  useLayoutEffect(() => {
+    if (pendingScrollFix.current !== null) {
+      const container = scrollRef.current;
+      if (container) {
+        const prevHeight = pendingScrollFix.current;
+        container.scrollTop += container.scrollHeight - prevHeight;
+      }
+      pendingScrollFix.current = null;
+    }
+  }, [beforeCount]);
+
+  const handleScroll = useCallback(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const containerTop = container.getBoundingClientRect().top;
+    const containerMid = containerTop + container.clientHeight * 0.35;
+
+    let closestMonth = null;
+    let closestDist = Infinity;
+    for (const [key, el] of Object.entries(monthRefs.current)) {
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      const dist = Math.abs(rect.top + rect.height / 2 - containerMid);
+      if (dist < closestDist) {
+        closestDist = dist;
+        closestMonth = key;
+      }
+    }
+
+    if (closestMonth) {
+      const [year, month] = closestMonth.split("-").map(Number);
+      const label = format(new Date(year, month - 1, 1), "MMMM yyyy");
+      if (label !== visibleMonthRef.current) {
+        visibleMonthRef.current = label;
+        onVisibleMonthChange(label);
+      }
+    }
+
+    // --- Infinite scroll: expand when near edges ---
+    // No guard ref needed — React batches the setState calls and
+    // the functional updater guarantees we always read the latest value.
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    // Near bottom? Load more future months
+    if (scrollHeight - scrollTop - clientHeight < EDGE_PX) {
+      setAfterCount((c) => c + LOAD_MORE);
+    }
+    // Near top? Load more past months (only if not already pending)
+    if (scrollTop < EDGE_PX && pendingScrollFix.current === null) {
+      pendingScrollFix.current = scrollHeight;
+      setBeforeCount((c) => c + LOAD_MORE);
+    }
+  }, [onVisibleMonthChange]);
+
+  // Attach scroll listener to the shared scroll container
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    container.addEventListener("scroll", handleScroll);
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [handleScroll, scrollRef]);
+
+  // Notify parent when range expands so it can widen its data query
+  useEffect(() => {
+    if (onRangeExpand) {
+      onRangeExpand(beforeCount, afterCount);
+    }
+  }, [beforeCount, afterCount, onRangeExpand]);
+
   return (
-    <div className="h-full flex flex-col">
-      {/* Day headers */}
-      <div className="grid grid-cols-7 border-b border-slate-200">
-        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-          <div
-            key={d}
-            className="py-2 text-center text-xs font-semibold text-slate-500 uppercase"
-          >
-            {d}
-          </div>
-        ))}
-      </div>
-      {/* Day grid */}
-      <div className="flex-1 grid grid-cols-7 auto-rows-fr">
-        {days.map((day) => {
-          const key = format(day, "yyyy-MM-dd");
-          const dayEvents = eventsByDay[key] ?? [];
-          const inMonth = isSameMonth(day, currentDate);
-          const today = isToday(day);
-          return (
-            <div
-              key={key}
-              className={`border-b border-r border-slate-100 p-1 min-h-[80px] cursor-pointer transition-colors hover:bg-slate-50 ${
-                !inMonth ? "bg-slate-50/50" : ""
-              }`}
-              onClick={() => onDayClick(day)}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                onNewEvent(day);
-              }}
-            >
-              <div className="flex items-center justify-between mb-0.5">
-                <span
-                  className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full ${
-                    today
-                      ? "bg-blue-600 text-white"
-                      : inMonth
-                        ? "text-slate-700"
-                        : "text-slate-400"
-                  }`}
-                >
-                  {format(day, "d")}
-                </span>
-                {dayEvents.length > 0 && (
-                  <span className="text-[10px] text-slate-400">
-                    {dayEvents.length}
-                  </span>
-                )}
-              </div>
-              <div className="space-y-0.5 overflow-hidden">
-                {dayEvents.slice(0, 3).map((ev) => {
-                  const cc = getColorClasses(ev.color);
-                  const isLeg = ev._source === "openstates";
+    <div>
+      {months.map((monthDate) => {
+        const mKey = format(monthDate, "yyyy-MM");
+        const mStart = startOfMonth(monthDate);
+        const mEnd = endOfMonth(monthDate);
+        const calStart = startOfWeek(mStart, { weekStartsOn: 0 });
+        const calEnd = endOfWeek(mEnd, { weekStartsOn: 0 });
+        const days = eachDayOfInterval({ start: calStart, end: calEnd });
+
+        return (
+          <div key={mKey} ref={(el) => (monthRefs.current[mKey] = el)}>
+            {/* Month label */}
+            <div className="bg-white/95 backdrop-blur-sm border-b border-slate-100 px-3 py-1.5 shrink-0">
+              <span className="text-sm font-bold text-slate-700">
+                {format(monthDate, "MMMM yyyy")}
+              </span>
+            </div>
+
+            {/* Day grid */}
+            <div className="grid grid-cols-7">
+              {days.map((day) => {
+                const key = format(day, "yyyy-MM-dd");
+                const inMonth = isSameMonth(day, monthDate);
+
+                // Hide filler days from adjacent months
+                if (!inMonth) {
                   return (
-                    <button
-                      key={ev.id}
-                      className={`w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate border ${cc.light} hover:brightness-95 transition-all flex items-center gap-0.5`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onEditEvent(ev);
-                      }}
-                    >
-                      {isLeg && <Landmark className="w-3 h-3 shrink-0" />}
-                      {!ev.all_day && !isLeg && (
-                        <span className="font-medium mr-1">
-                          {format(parseISO(ev.start_time), "h:mm")}
+                    <div
+                      key={key}
+                      className="border-b border-r border-slate-100 min-h-[80px]"
+                    />
+                  );
+                }
+
+                const dayEvents = eventsByDay[key] ?? [];
+                const today = isToday(day);
+                return (
+                  <div
+                    key={key}
+                    className="border-b border-r border-slate-100 p-1 min-h-[80px] cursor-pointer transition-colors hover:bg-slate-50"
+                    onClick={() => onDayClick(day)}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      onNewEvent(day);
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span
+                        className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full ${
+                          today ? "bg-blue-600 text-white" : "text-slate-700"
+                        }`}
+                      >
+                        {format(day, "d")}
+                      </span>
+                      {dayEvents.length > 0 && (
+                        <span className="text-[10px] text-slate-400">
+                          {dayEvents.length}
                         </span>
                       )}
-                      <span className="truncate">{ev.title}</span>
-                    </button>
-                  );
-                })}
-                {dayEvents.length > 3 && (
-                  <span className="text-[10px] text-slate-500 pl-1">
-                    +{dayEvents.length - 3} more
-                  </span>
-                )}
-              </div>
+                    </div>
+                    <div className="space-y-0.5 overflow-hidden">
+                      {dayEvents.slice(0, 3).map((ev) => {
+                        const cc = getColorClasses(ev.color);
+                        const isLeg = ev._source === "openstates";
+                        return (
+                          <button
+                            key={ev.id}
+                            className={`w-full text-left text-[11px] leading-tight px-1.5 py-0.5 rounded truncate border ${cc.light} hover:brightness-95 transition-all flex items-center gap-0.5`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditEvent(ev);
+                            }}
+                          >
+                            {isLeg && <Landmark className="w-3 h-3 shrink-0" />}
+                            {!ev.all_day && !isLeg && (
+                              <span className="font-medium mr-1">
+                                {format(parseISO(ev.start_time), "h:mm")}
+                              </span>
+                            )}
+                            <span className="truncate">{ev.title}</span>
+                          </button>
+                        );
+                      })}
+                      {dayEvents.length > 3 && (
+                        <span className="text-[10px] text-slate-500 pl-1">
+                          +{dayEvents.length - 3} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
-      </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -786,13 +1126,23 @@ function WeekView({ currentDate, events, onNewEvent, onEditEvent }) {
                   const evStart = parseISO(ev.start_time);
                   return isSameDay(evStart, day) && evStart.getHours() === hour;
                 });
+                // Get layout for ALL timed events on this day so columns
+                // are consistent across hours.
+                const dayTimedEvents = events.filter(
+                  (ev) =>
+                    !ev.all_day && isSameDay(parseISO(ev.start_time), day),
+                );
+                const layout = layoutOverlappingEvents(dayTimedEvents);
+                const hourLayout = layout.filter(({ ev }) =>
+                  hourEvents.some((h) => h.id === ev.id),
+                );
                 return (
                   <div
                     key={`${dayKey}-${hour}`}
                     className="h-14 border-b border-r border-slate-100 relative cursor-pointer hover:bg-blue-50/30 transition-colors"
                     onClick={() => onNewEvent(setHours(day, hour))}
                   >
-                    {hourEvents.map((ev) => {
+                    {hourLayout.map(({ ev, col, totalCols }) => {
                       const cc = getColorClasses(ev.color);
                       const mins = differenceInMinutes(
                         parseISO(ev.end_time),
@@ -801,13 +1151,17 @@ function WeekView({ currentDate, events, onNewEvent, onEditEvent }) {
                       const heightPx = Math.max(20, (mins / 60) * 56);
                       const topOffset =
                         parseISO(ev.start_time).getMinutes() * (56 / 60);
+                      const widthPct = 100 / totalCols;
+                      const leftPct = col * widthPct;
                       return (
                         <button
                           key={ev.id}
-                          className={`absolute left-0.5 right-0.5 rounded px-1 text-[11px] leading-tight overflow-hidden border ${cc.light} hover:brightness-95 hover:shadow-sm z-10`}
+                          className={`absolute rounded px-1 text-[11px] leading-tight overflow-hidden border ${cc.light} hover:brightness-95 hover:shadow-sm z-10`}
                           style={{
                             top: `${topOffset}px`,
                             height: `${heightPx}px`,
+                            left: `calc(${leftPct}% + 1px)`,
+                            width: `calc(${widthPct}% - 2px)`,
                           }}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -820,7 +1174,7 @@ function WeekView({ currentDate, events, onNewEvent, onEditEvent }) {
                             )}
                             {ev.title}
                           </span>
-                          {mins >= 60 && (
+                          {mins >= 60 && totalCols <= 2 && (
                             <span className="text-[10px] opacity-70">
                               {format(parseISO(ev.start_time), "h:mm")}–
                               {format(parseISO(ev.end_time), "h:mm a")}
@@ -851,6 +1205,12 @@ function DayView({ currentDate, events, onNewEvent, onEditEvent }) {
   );
   const allDayEvents = dayEvents.filter((ev) => ev.all_day);
   const timedEvents = dayEvents.filter((ev) => !ev.all_day);
+
+  // Compute overlap layout once for all timed events in the day
+  const dayLayout = useMemo(
+    () => layoutOverlappingEvents(timedEvents),
+    [timedEvents],
+  );
 
   return (
     <div className="h-full flex flex-col">
@@ -896,55 +1256,67 @@ function DayView({ currentDate, events, onNewEvent, onEditEvent }) {
                   className="h-16 border-b border-slate-100 relative cursor-pointer hover:bg-blue-50/30 transition-colors"
                   onClick={() => onNewEvent(setHours(currentDate, hour))}
                 >
-                  {hourEvents.map((ev) => {
-                    const cc = getColorClasses(ev.color);
-                    const mins = differenceInMinutes(
-                      parseISO(ev.end_time),
-                      parseISO(ev.start_time),
-                    );
-                    const heightPx = Math.max(24, (mins / 60) * 64);
-                    const topOffset =
-                      parseISO(ev.start_time).getMinutes() * (64 / 60);
-                    return (
-                      <button
-                        key={ev.id}
-                        className={`absolute left-1 right-1 rounded-lg px-2 py-1 text-xs overflow-hidden border ${cc.light} hover:brightness-95 hover:shadow-sm z-10 text-left`}
-                        style={{
-                          top: `${topOffset}px`,
-                          height: `${heightPx}px`,
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEditEvent(ev);
-                        }}
-                      >
-                        <div className="font-semibold truncate flex items-center gap-1">
-                          {ev._source === "openstates" && (
-                            <Landmark className="w-3.5 h-3.5 shrink-0" />
+                  {dayLayout
+                    .filter(({ ev }) => hourEvents.some((h) => h.id === ev.id))
+                    .map(({ ev, col, totalCols }) => {
+                      const cc = getColorClasses(ev.color);
+                      const mins = differenceInMinutes(
+                        parseISO(ev.end_time),
+                        parseISO(ev.start_time),
+                      );
+                      const heightPx = Math.max(24, (mins / 60) * 64);
+                      const topOffset =
+                        parseISO(ev.start_time).getMinutes() * (64 / 60);
+                      const widthPct = 100 / totalCols;
+                      const leftPct = col * widthPct;
+                      return (
+                        <button
+                          key={ev.id}
+                          className={`absolute rounded-lg px-2 py-1 text-xs overflow-hidden border ${cc.light} hover:brightness-95 hover:shadow-sm z-10 text-left`}
+                          style={{
+                            top: `${topOffset}px`,
+                            height: `${heightPx}px`,
+                            left: `calc(${leftPct}% + 4px)`,
+                            width: `calc(${widthPct}% - 8px)`,
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditEvent(ev);
+                          }}
+                        >
+                          <div className="font-semibold truncate flex items-center gap-1">
+                            {ev._source === "openstates" && (
+                              <Landmark className="w-3.5 h-3.5 shrink-0" />
+                            )}
+                            {ev.title}
+                          </div>
+                          {totalCols <= 3 && (
+                            <div className="flex items-center gap-2 text-[10px] opacity-70 mt-0.5">
+                              <span className="flex items-center gap-0.5">
+                                <Clock className="w-3 h-3" />
+                                {format(
+                                  parseISO(ev.start_time),
+                                  "h:mm a",
+                                )} – {format(parseISO(ev.end_time), "h:mm a")}
+                              </span>
+                              {ev.location && totalCols <= 2 && (
+                                <span className="flex items-center gap-0.5 truncate">
+                                  <MapPin className="w-3 h-3 shrink-0" />
+                                  <span className="truncate">
+                                    {ev.location}
+                                  </span>
+                                </span>
+                              )}
+                            </div>
                           )}
-                          {ev.title}
-                        </div>
-                        <div className="flex items-center gap-2 text-[10px] opacity-70 mt-0.5">
-                          <span className="flex items-center gap-0.5">
-                            <Clock className="w-3 h-3" />
-                            {format(parseISO(ev.start_time), "h:mm a")} –{" "}
-                            {format(parseISO(ev.end_time), "h:mm a")}
-                          </span>
-                          {ev.location && (
-                            <span className="flex items-center gap-0.5">
-                              <MapPin className="w-3 h-3" />
-                              {ev.location}
-                            </span>
+                          {mins >= 90 && ev.description && totalCols <= 2 && (
+                            <p className="text-[10px] opacity-60 mt-1 line-clamp-2">
+                              {ev.description}
+                            </p>
                           )}
-                        </div>
-                        {mins >= 90 && ev.description && (
-                          <p className="text-[10px] opacity-60 mt-1 line-clamp-2">
-                            {ev.description}
-                          </p>
-                        )}
-                      </button>
-                    );
-                  })}
+                        </button>
+                      );
+                    })}
                 </div>
               </div>
             );
@@ -986,15 +1358,37 @@ function LegislativeEventModal({ event, onClose }) {
       <DialogContent className="sm:max-w-[540px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-              <Landmark className="w-5 h-5 text-amber-700" />
+            <div
+              className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                event.color === "leg-senate"
+                  ? "bg-blue-100"
+                  : event.color === "leg-house"
+                    ? "bg-emerald-100"
+                    : "bg-amber-100"
+              }`}
+            >
+              <Landmark
+                className={`w-5 h-5 ${
+                  event.color === "leg-senate"
+                    ? "text-blue-700"
+                    : event.color === "leg-house"
+                      ? "text-emerald-700"
+                      : "text-amber-700"
+                }`}
+              />
             </div>
             <div className="flex-1 min-w-0">
               <DialogTitle className="text-base">{event.title}</DialogTitle>
               <DialogDescription className="flex items-center gap-2 mt-0.5">
                 <Badge
                   variant="outline"
-                  className="text-[10px] uppercase bg-amber-50 text-amber-800 border-amber-300"
+                  className={`text-[10px] uppercase ${
+                    event.color === "leg-senate"
+                      ? "bg-blue-50 text-blue-800 border-blue-300"
+                      : event.color === "leg-house"
+                        ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                        : "bg-amber-50 text-amber-800 border-amber-300"
+                  }`}
                 >
                   {event.classification || "Legislative Event"}
                 </Badge>
