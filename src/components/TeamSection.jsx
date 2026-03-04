@@ -300,10 +300,81 @@ export default function TeamSection({ team, onLeave, defaultOpen = true }) {
   const activeMembers = members.filter((m) => m.status === "active");
 
   // ── Sorted bills ───────────────────────────────────────────────────────────
+  // Helper: is LC change active (unseen or viewed < 1 day ago)
+  function isActiveLcChange(lcTracking) {
+    if (!lcTracking) return false;
+    if (
+      lcTracking.previous_lc &&
+      lcTracking.previous_lc !== lcTracking.current_lc
+    ) {
+      // Unseen = always active
+      if (!lcTracking.change_seen) return true;
+      // Seen but within 1 day = still show the mark
+      if (lcTracking.change_seen_at) {
+        const seenAt = new Date(lcTracking.change_seen_at).getTime();
+        return Date.now() - seenAt < 24 * 60 * 60 * 1000;
+      }
+      // Fallback: if change_seen_at missing, use lc_changed_at within 1 day
+      if (lcTracking.lc_changed_at) {
+        const changedAt = new Date(lcTracking.lc_changed_at).getTime();
+        return Date.now() - changedAt < 24 * 60 * 60 * 1000;
+      }
+      return false;
+    }
+    return false;
+  }
+
+  // LC change count for this team (unseen only, for badge)
+  const lcUnseenTeamCount = useMemo(() => {
+    return teamBills.filter((b) => {
+      const track = lcTrackingMap[b.bill_number];
+      return (
+        track &&
+        track.previous_lc &&
+        track.previous_lc !== track.current_lc &&
+        !track.change_seen
+      );
+    }).length;
+  }, [teamBills, lcTrackingMap]);
+
+  // Mark team LC changes as seen when team section is opened
+  useEffect(() => {
+    if (teamOpen && lcUnseenTeamCount > 0) {
+      const unseenBillNumbers = teamBills
+        .filter((b) => {
+          const track = lcTrackingMap[b.bill_number];
+          return (
+            track &&
+            track.previous_lc &&
+            track.previous_lc !== track.current_lc &&
+            !track.change_seen
+          );
+        })
+        .map((b) => b.bill_number);
+      if (unseenBillNumbers.length > 0) {
+        api.LcTracking.markBillsSeen(unseenBillNumbers)
+          .then(() => {
+            queryClient.invalidateQueries({ queryKey: ["lcTracking"] });
+          })
+          .catch(() => {
+            /* non-critical */
+          });
+      }
+    }
+  }, [teamOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sort bills: LC-changed bills (active) first, then normal sort
   const sortedTeamBills = useMemo(() => {
-    if (!listSort.key || billsLayout !== "list") return teamBills;
-    const dir = listSort.dir === "asc" ? 1 : -1;
-    return [...teamBills].sort((a, b) => {
+    const withLcChange = teamBills.filter((b) =>
+      isActiveLcChange(lcTrackingMap[b.bill_number]),
+    );
+    const withoutLcChange = teamBills.filter(
+      (b) => !isActiveLcChange(lcTrackingMap[b.bill_number]),
+    );
+    // Apply normal sort to each group
+    const sortFn = (a, b) => {
+      if (!listSort.key || billsLayout !== "list") return 0;
+      const dir = listSort.dir === "asc" ? 1 : -1;
       if (listSort.key === "bill") {
         const an = extractBillNum(a.bill_number);
         const bn = extractBillNum(b.bill_number);
@@ -321,8 +392,9 @@ export default function TeamSection({ team, onLeave, defaultOpen = true }) {
         return ((FLAG_ORDER[am] ?? 99) - (FLAG_ORDER[bm] ?? 99)) * dir;
       }
       return 0;
-    });
-  }, [teamBills, listSort, billsLayout, billMeta]);
+    };
+    return [...withLcChange.sort(sortFn), ...withoutLcChange.sort(sortFn)];
+  }, [teamBills, listSort, billsLayout, billMeta, lcTrackingMap]);
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const updateMetaMutation = useMutation({
@@ -476,6 +548,14 @@ export default function TeamSection({ team, onLeave, defaultOpen = true }) {
                   {unreadChatCount > 0 && !teamOpen && (
                     <span className="min-w-[20px] h-5 px-1.5 flex items-center justify-center bg-red-500 text-white text-[11px] font-bold rounded-full leading-none">
                       {unreadChatCount > 99 ? "99+" : unreadChatCount}
+                    </span>
+                  )}
+                  {lcUnseenTeamCount > 0 && !teamOpen && (
+                    <span
+                      className="min-w-[20px] h-5 px-1.5 flex items-center justify-center bg-amber-500 text-white text-[11px] font-bold rounded-full leading-none"
+                      title="LC number changes"
+                    >
+                      {lcUnseenTeamCount > 99 ? "99+" : lcUnseenTeamCount}
                     </span>
                   )}
                   {isOwner && teamOpen && (
@@ -657,7 +737,7 @@ export default function TeamSection({ team, onLeave, defaultOpen = true }) {
                       {teamBills.length > 0 ? (
                         billsLayout === "icon" ? (
                           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                            {teamBills.map((bill) => {
+                            {sortedTeamBills.map((bill) => {
                               const meta = billMeta[bill.bill_number] || {};
                               const assignee = meta.policy_assistant
                                 ? activeMembers.find(

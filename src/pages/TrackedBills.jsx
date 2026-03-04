@@ -67,6 +67,20 @@ const PARTY_ORDER = { D: 0, R: 1, I: 2, G: 3, L: 4 };
 export default function TrackedBills() {
   const queryClient = useQueryClient();
   const [selectedBill, setSelectedBill] = useState(null);
+
+  const handleBillUpdate = useCallback(
+    (updatedBill) => {
+      if (!updatedBill?.id) return;
+      queryClient.setQueryData(["bills"], (old) =>
+        old ? old.map((b) => (b.id === updatedBill.id ? updatedBill : b)) : old,
+      );
+      setSelectedBill((prev) => {
+        if (!prev || prev.id !== updatedBill.id) return prev;
+        return { ...prev, ...updatedBill };
+      });
+    },
+    [queryClient],
+  );
   const [layout, setLayoutState] = useState(
     () => localStorage.getItem("tracked-bills-layout") || "icon",
   );
@@ -98,22 +112,6 @@ export default function TrackedBills() {
     queryFn: () => api.LcTracking.getAll(),
   });
 
-  // Mark unseen LC changes as seen when the page loads
-  useEffect(() => {
-    const markSeen = async () => {
-      try {
-        const unseenCount = await api.LcTracking.getUnseenCount();
-        if (unseenCount > 0) {
-          await api.LcTracking.markAllSeen();
-          queryClient.invalidateQueries({ queryKey: ["lcUnseenCount"] });
-        }
-      } catch {
-        /* non-critical */
-      }
-    };
-    markSeen();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   const {
     height: listHeight,
     collapsed: listCollapsed,
@@ -129,6 +127,26 @@ export default function TrackedBills() {
   const trackedBills = allBills.filter((bill) =>
     trackedBillIds.includes(bill.bill_number),
   );
+
+  // Mark unseen LC changes as seen for personal tracked bills when the page loads
+  useEffect(() => {
+    if (!trackedBillIds.length) return;
+    const unseenPersonal = trackedBillIds.filter((bn) => {
+      const t = lcTrackingMap[bn];
+      return (
+        t && t.previous_lc && t.previous_lc !== t.current_lc && !t.change_seen
+      );
+    });
+    if (unseenPersonal.length > 0) {
+      api.LcTracking.markBillsSeen(unseenPersonal)
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ["lcTracking"] });
+        })
+        .catch(() => {
+          /* non-critical */
+        });
+    }
+  }, [trackedBillIds, lcTrackingMap]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Toggle tracking ────────────────────────────────────────────────────────
   const trackMutation = useMutation({
@@ -180,28 +198,42 @@ export default function TrackedBills() {
   );
 
   // ── Sort helpers ───────────────────────────────────────────────────────────
-  const toggleSort = useCallback((key) => {
-    setListSort((prev) =>
-      prev.key === key
-        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
-        : { key, dir: "asc" },
-    );
-  }, []);
+  // Helper: is LC change active (unseen or viewed < 1 day ago)
+  function isActiveLcChange(lcTracking) {
+    if (!lcTracking) return false;
+    if (
+      lcTracking.previous_lc &&
+      lcTracking.previous_lc !== lcTracking.current_lc
+    ) {
+      // Unseen = always active
+      if (!lcTracking.change_seen) return true;
+      // Seen but within 1 day = still show the mark
+      if (lcTracking.change_seen_at) {
+        const seenAt = new Date(lcTracking.change_seen_at).getTime();
+        return Date.now() - seenAt < 24 * 60 * 60 * 1000;
+      }
+      // Fallback: if change_seen_at missing, use lc_changed_at within 1 day
+      if (lcTracking.lc_changed_at) {
+        const changedAt = new Date(lcTracking.lc_changed_at).getTime();
+        return Date.now() - changedAt < 24 * 60 * 60 * 1000;
+      }
+      return false;
+    }
+    return false;
+  }
 
-  const SortIcon = ({ column }) => {
-    if (listSort.key !== column)
-      return <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />;
-    return listSort.dir === "asc" ? (
-      <ArrowUp className="w-3.5 h-3.5 text-blue-600" />
-    ) : (
-      <ArrowDown className="w-3.5 h-3.5 text-blue-600" />
-    );
-  };
-
+  // Sort bills: LC-changed bills (active) first, then normal sort
   const sortedBills = useMemo(() => {
-    if (!listSort.key || layout !== "list") return trackedBills;
-    const dir = listSort.dir === "asc" ? 1 : -1;
-    return [...trackedBills].sort((a, b) => {
+    const withLcChange = trackedBills.filter((b) =>
+      isActiveLcChange(lcTrackingMap[b.bill_number]),
+    );
+    const withoutLcChange = trackedBills.filter(
+      (b) => !isActiveLcChange(lcTrackingMap[b.bill_number]),
+    );
+    // Apply normal sort to each group
+    const sortFn = (a, b) => {
+      if (!listSort.key || layout !== "list") return 0;
+      const dir = listSort.dir === "asc" ? 1 : -1;
       if (listSort.key === "bill") {
         const an = extractBillNum(a.bill_number);
         const bn = extractBillNum(b.bill_number);
@@ -221,8 +253,9 @@ export default function TrackedBills() {
         return (af - bf) * dir;
       }
       return 0;
-    });
-  }, [trackedBills, listSort, layout, personalMeta]);
+    };
+    return [...withLcChange.sort(sortFn), ...withoutLcChange.sort(sortFn)];
+  }, [trackedBills, listSort, layout, personalMeta, lcTrackingMap]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -295,7 +328,7 @@ export default function TrackedBills() {
             layout === "icon" ? (
               /* ── Card view ───────────────────────────────────────── */
               <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                {trackedBills.map((bill) => {
+                {sortedBills.map((bill) => {
                   const meta = personalMeta[bill.bill_number] || {};
                   return (
                     <BillCard
@@ -580,6 +613,7 @@ export default function TrackedBills() {
         bill={selectedBill}
         isOpen={!!selectedBill}
         onClose={() => setSelectedBill(null)}
+        onBillUpdate={handleBillUpdate}
         isTracked={
           selectedBill
             ? trackedBillIds.includes(selectedBill.bill_number)

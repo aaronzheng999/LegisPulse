@@ -94,6 +94,38 @@ export default function Layout({ children, currentPageName }) {
   const totalBills = bills.length;
   const trackedCount = (userData?.tracked_bill_ids ?? []).length;
 
+  // ── LC number change notification badges ────────────────────────────────────
+  const { data: lcTrackingMap = {} } = useQuery({
+    queryKey: ["lcTracking"],
+    queryFn: () => api.LcTracking.getAll(),
+    enabled: !!user,
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
+  const { data: allTeamBillNumbers = [] } = useQuery({
+    queryKey: ["allTeamBillNumbers"],
+    queryFn: () => api.entities.Team.getAllTeamBillNumbers(),
+    enabled: !!user,
+    staleTime: 60000,
+  });
+
+  // Compute personal vs team unseen LC counts
+  const { lcUnseenPersonalCount, lcUnseenTeamCount } = useMemo(() => {
+    const personalBills = new Set(userData?.tracked_bill_ids ?? []);
+    const teamBills = new Set(allTeamBillNumbers);
+
+    let personal = 0;
+    let team = 0;
+    for (const [bn, t] of Object.entries(lcTrackingMap)) {
+      if (t.previous_lc && t.previous_lc !== t.current_lc && !t.change_seen) {
+        if (personalBills.has(bn)) personal++;
+        if (teamBills.has(bn)) team++;
+      }
+    }
+    return { lcUnseenPersonalCount: personal, lcUnseenTeamCount: team };
+  }, [lcTrackingMap, userData, allTeamBillNumbers]);
+
   // ── Team notification badge ────────────────────────────────────────────────
   const { data: teamNotifications } = useQuery({
     queryKey: ["teamNotifications"],
@@ -107,22 +139,14 @@ export default function Layout({ children, currentPageName }) {
   });
 
   const teamBadgeCount = useMemo(() => {
-    if (!teamNotifications) return 0;
+    if (!teamNotifications) return lcUnseenTeamCount;
     return (
       (teamNotifications.pendingInvites ?? 0) +
       (teamNotifications.joinRequests ?? 0) +
-      (teamNotifications.unreadChats ?? 0)
+      (teamNotifications.unreadChats ?? 0) +
+      lcUnseenTeamCount
     );
-  }, [teamNotifications]);
-
-  // ── LC number change notification badge ────────────────────────────────────
-  const { data: lcUnseenCount = 0 } = useQuery({
-    queryKey: ["lcUnseenCount"],
-    queryFn: () => api.LcTracking.getUnseenCount(),
-    enabled: !!user,
-    refetchInterval: 60000, // poll every 60s
-    staleTime: 30000,
-  });
+  }, [teamNotifications, lcUnseenTeamCount]);
 
   return (
     <SidebarProvider>
@@ -173,9 +197,11 @@ export default function Layout({ children, currentPageName }) {
                             </span>
                           )}
                           {item.title === "Tracked Bills" &&
-                            lcUnseenCount > 0 && (
+                            lcUnseenPersonalCount > 0 && (
                               <span className="min-w-[20px] h-5 px-1.5 flex items-center justify-center bg-red-500 text-white text-[11px] font-bold rounded-full leading-none">
-                                {lcUnseenCount > 99 ? "99+" : lcUnseenCount}
+                                {lcUnseenPersonalCount > 99
+                                  ? "99+"
+                                  : lcUnseenPersonalCount}
                               </span>
                             )}
                         </Link>

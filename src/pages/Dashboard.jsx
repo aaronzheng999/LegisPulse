@@ -452,7 +452,7 @@ export default function Dashboard() {
               queryClient.invalidateQueries({ queryKey: ["teamBillMeta"] });
               queryClient.invalidateQueries({ queryKey: ["personalBillMeta"] });
               queryClient.invalidateQueries({ queryKey: ["lcTracking"] });
-              queryClient.invalidateQueries({ queryKey: ["lcUnseenCount"] });
+              queryClient.invalidateQueries({ queryKey: ["lcTracking"] });
             }}
           />
         </div>

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS public.bill_lc_tracking (
   previous_lc     text,                  -- LC before the last change (null if no change detected)
   lc_changed_at   timestamptz,           -- when the change was detected
   change_seen     boolean DEFAULT true,  -- false when user hasn't seen the change yet
+  change_seen_at  timestamptz,           -- when the change was marked as seen (for 1-day expiry)
   last_checked    timestamptz DEFAULT now(),
   created_at      timestamptz DEFAULT now() NOT NULL,
   updated_at      timestamptz DEFAULT now() NOT NULL,
@@ -19,6 +20,7 @@ CREATE TABLE IF NOT EXISTS public.bill_lc_tracking (
 
 ALTER TABLE public.bill_lc_tracking ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users manage their own lc tracking" ON public.bill_lc_tracking;
 CREATE POLICY "Users manage their own lc tracking"
   ON public.bill_lc_tracking FOR ALL
   USING (auth.uid() = user_id)

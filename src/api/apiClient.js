@@ -652,6 +652,24 @@ export const api = {
         return (data ?? []).map((r) => r.bill_number);
       },
 
+      /** Get all bill numbers from all teams the current user belongs to. */
+      async getAllTeamBillNumbers() {
+        const userId = await getUserId();
+        const { data: memberships } = await supabase
+          .from("team_members")
+          .select("team_id")
+          .eq("user_id", userId)
+          .eq("status", "active");
+        const teamIds = (memberships ?? []).map((m) => m.team_id);
+        if (teamIds.length === 0) return [];
+        const { data, error } = await supabase
+          .from("team_bills")
+          .select("bill_number")
+          .in("team_id", teamIds);
+        if (error) throw error;
+        return [...new Set((data ?? []).map((r) => r.bill_number))];
+      },
+
       async addBill(teamId, billNumber) {
         const userId = await getUserId();
         const { error } = await supabase
@@ -1018,7 +1036,7 @@ export const api = {
       const { data, error } = await supabase
         .from("bill_lc_tracking")
         .select(
-          "bill_number, current_lc, previous_lc, lc_changed_at, change_seen, last_checked",
+          "bill_number, current_lc, previous_lc, lc_changed_at, change_seen, change_seen_at, last_checked",
         )
         .eq("user_id", userId);
       if (error) throw error;
@@ -1029,6 +1047,7 @@ export const api = {
           previous_lc: row.previous_lc,
           lc_changed_at: row.lc_changed_at,
           change_seen: row.change_seen,
+          change_seen_at: row.change_seen_at,
           last_checked: row.last_checked,
         };
       }
@@ -1124,14 +1143,29 @@ export const api = {
       return count ?? 0;
     },
 
-    /** Mark all unseen changes as seen. */
+    /** Mark all unseen changes as seen with timestamp. */
     async markAllSeen() {
       const userId = await getUserId();
+      const now = new Date().toISOString();
       const { error } = await supabase
         .from("bill_lc_tracking")
-        .update({ change_seen: true, updated_at: new Date().toISOString() })
+        .update({ change_seen: true, change_seen_at: now, updated_at: now })
         .eq("user_id", userId)
         .eq("change_seen", false);
+      if (error) throw error;
+    },
+
+    /** Mark specific bills' LC changes as seen with timestamp. */
+    async markBillsSeen(billNumbers) {
+      if (!billNumbers?.length) return;
+      const userId = await getUserId();
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from("bill_lc_tracking")
+        .update({ change_seen: true, change_seen_at: now, updated_at: now })
+        .eq("user_id", userId)
+        .eq("change_seen", false)
+        .in("bill_number", billNumbers);
       if (error) throw error;
     },
   },
