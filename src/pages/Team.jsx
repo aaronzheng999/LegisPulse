@@ -1,55 +1,118 @@
-import React, { useState } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/apiClient";
-import { useAuth } from "@/lib/AuthContext";
 import {
   Users,
   UserPlus,
-  Trash2,
-  Star,
-  Mail,
   UserCheck,
   CheckCircle,
   XCircle,
-  LogOut,
+  Hash,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import BillCard from "@/components/bills/BillCard";
-import BillDetailsModal from "@/components/bills/BillDetailsModal";
-import TeamChat from "@/components/TeamChat";
+import TeamSection from "@/components/TeamSection";
 
 export default function Team() {
   const queryClient = useQueryClient();
-  const { user: authUser } = useAuth();
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteError, setInviteError] = useState("");
-  const [selectedBill, setSelectedBill] = useState(null);
 
-  // Load (or auto-create) the current user's team
-  const {
-    data: team,
-    isLoading: loadingTeam,
-    refetch: refetchTeam,
-  } = useQuery({
-    queryKey: ["team"],
-    queryFn: () => api.entities.Team.getOrCreate(),
+  // ── Create / Join form state ───────────────────────────────────────────────
+  const [newTeamName, setNewTeamName] = useState("");
+  const [creatingTeam, setCreatingTeam] = useState(false);
+  const [createTeamError, setCreateTeamError] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [joiningTeam, setJoiningTeam] = useState(false);
+  const [joinError, setJoinError] = useState("");
+  const [showCreateJoin, setShowCreateJoin] = useState(false);
+
+  // ── Scroll persistence ─────────────────────────────────────────────────────
+  const scrollRestored = useRef(false);
+  const pageRef = useRef(null);
+
+  const getScrollContainer = useCallback(() => {
+    let el = pageRef.current;
+    while (el) {
+      const style = getComputedStyle(el);
+      if (style.overflow === "auto" || style.overflowY === "auto") return el;
+      el = el.parentElement;
+    }
+    return null;
+  }, []);
+
+  useEffect(() => {
+    const container = getScrollContainer();
+    if (!container) return;
+    const handleScroll = () => {
+      sessionStorage.setItem("team-scroll-y", String(container.scrollTop));
+    };
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [getScrollContainer]);
+
+  useEffect(() => {
+    if (scrollRestored.current) return;
+    scrollRestored.current = true;
+    const savedY = parseInt(sessionStorage.getItem("team-scroll-y") || "0", 10);
+    if (savedY > 0) {
+      requestAnimationFrame(() => {
+        const container = getScrollContainer();
+        if (container) container.scrollTop = savedY;
+      });
+    }
+  }, [getScrollContainer]);
+
+  // ── Mark team page visit (for unread chat badge in nav) ────────────────────
+  useEffect(() => {
+    localStorage.setItem("team-page-last-visit", new Date().toISOString());
+    // Refresh the notification badge since we're now on the page
+    queryClient.invalidateQueries({ queryKey: ["teamNotifications"] });
+  }, [queryClient]);
+
+  // ── Load ALL teams + pending invites ───────────────────────────────────────
+  const { data: allTeamData, isLoading } = useQuery({
+    queryKey: ["allTeams"],
+    queryFn: () => api.entities.Team.getAll(),
     staleTime: 0,
     retry: 1,
   });
 
-  const hasPendingInvite = team?.__pendingInvite === true;
+  const teams = allTeamData?.teams ?? [];
+  const pendingInvites = allTeamData?.__pendingInvites ?? [];
 
-  // Pending invites for this user (shown when hasPendingInvite)
-  const { data: pendingInvites = [], refetch: refetchPending } = useQuery({
-    queryKey: ["pendingInvites"],
-    queryFn: () => api.entities.Team.getPendingInvites(),
-    enabled: hasPendingInvite,
+  // ── Pending join requests (for teams I own) ────────────────────────────────
+  const { data: pendingJoinRequests = [] } = useQuery({
+    queryKey: ["pendingJoinRequests"],
+    queryFn: () => api.entities.Team.getPendingJoinRequests(),
     staleTime: 0,
+    retry: 1,
   });
 
+  const approveJoinMutation = useMutation({
+    mutationFn: (memberId) => api.entities.Team.approveJoinRequest(memberId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pendingJoinRequests"] });
+      queryClient.invalidateQueries({ queryKey: ["teamNotifications"] });
+      // Invalidate teamMembers for all teams so the member list updates
+      teams.forEach((t) =>
+        queryClient.invalidateQueries({ queryKey: ["teamMembers", t.id] }),
+      );
+    },
+  });
+
+  const declineJoinMutation = useMutation({
+    mutationFn: (memberId) => api.entities.Team.declineJoinRequest(memberId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pendingJoinRequests"] });
+      queryClient.invalidateQueries({ queryKey: ["teamNotifications"] });
+      teams.forEach((t) =>
+        queryClient.invalidateQueries({ queryKey: ["teamMembers", t.id] }),
+      );
+    },
+  });
+
+  // ── Accept / Decline invites ───────────────────────────────────────────────
   const [isAccepting, setIsAccepting] = useState(false);
   const [acceptError, setAcceptError] = useState("");
 
@@ -58,15 +121,11 @@ export default function Team() {
     setAcceptError("");
     try {
       await api.entities.Team.acceptPendingInvites();
-      // Force refetch team query — don't just invalidate, wait for fresh data
-      await queryClient.refetchQueries({ queryKey: ["team"] });
-      await queryClient.invalidateQueries({ queryKey: ["pendingInvites"] });
+      await queryClient.refetchQueries({ queryKey: ["allTeams"] });
+      queryClient.invalidateQueries({ queryKey: ["teamNotifications"] });
     } catch (err) {
       console.error("[Accept invite]", err);
-      setAcceptError(
-        err?.message ??
-          "Failed to accept invite. Make sure the RLS SQL has been run in Supabase.",
-      );
+      setAcceptError(err?.message ?? "Failed to accept invite.");
     } finally {
       setIsAccepting(false);
     }
@@ -75,99 +134,59 @@ export default function Team() {
   const handleDeclineInvite = async (invite) => {
     try {
       await api.entities.Team.declineInvite(invite.id);
-      await queryClient.refetchQueries({ queryKey: ["team"] });
-      await queryClient.invalidateQueries({ queryKey: ["pendingInvites"] });
+      await queryClient.refetchQueries({ queryKey: ["allTeams"] });
+      queryClient.invalidateQueries({ queryKey: ["teamNotifications"] });
     } catch (err) {
       console.error("[Decline invite]", err);
     }
   };
 
-  const teamId = team?.id;
-
-  const { data: members = [] } = useQuery({
-    queryKey: ["teamMembers", teamId],
-    queryFn: () => api.entities.Team.getMembers(teamId),
-    enabled: !!teamId,
-  });
-
-  const { data: teamBillNumbers = [] } = useQuery({
-    queryKey: ["teamBills", teamId],
-    queryFn: () => api.entities.Team.getBillNumbers(teamId),
-    enabled: !!teamId,
-  });
-
-  const { data: allBills = [] } = useQuery({
-    queryKey: ["bills"],
-    queryFn: () => api.entities.Bill.list(),
-  });
-
-  const { data: userData } = useQuery({
-    queryKey: ["profile"],
-    queryFn: () => api.auth.me().catch(() => null),
-  });
-
-  const trackedBillIds = userData?.tracked_bill_ids ?? [];
-  const teamBills = allBills.filter((b) =>
-    teamBillNumbers.includes(b.bill_number),
-  );
-  const isOwner = team?.created_by === authUser?.id;
-
-  const handleLeaveTeam = async () => {
-    if (!window.confirm("Are you sure you want to leave this team?")) return;
+  // ── Create team ────────────────────────────────────────────────────────────
+  const handleCreateTeam = async () => {
+    if (!newTeamName.trim()) {
+      setCreateTeamError("Please enter a team name.");
+      return;
+    }
+    setCreatingTeam(true);
+    setCreateTeamError("");
     try {
-      await api.entities.Team.leaveTeam(teamId);
-      await queryClient.refetchQueries({ queryKey: ["team"] });
-      queryClient.removeQueries({ queryKey: ["teamMembers", teamId] });
-      queryClient.removeQueries({ queryKey: ["teamBills", teamId] });
+      await api.entities.Team.createTeam(newTeamName);
+      await queryClient.refetchQueries({ queryKey: ["allTeams"] });
+      setNewTeamName("");
+      setShowCreateJoin(false);
     } catch (err) {
-      console.error("[Leave team]", err);
-      alert(err?.message ?? "Failed to leave team.");
+      setCreateTeamError(err?.message ?? "Failed to create team.");
+    } finally {
+      setCreatingTeam(false);
     }
   };
 
-  // ── Mutations ──────────────────────────────────────────────────────────────
-
-  const inviteMutation = useMutation({
-    mutationFn: (email) => api.entities.Team.inviteMember(teamId, email),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["teamMembers", teamId] });
-      setInviteEmail("");
-      setInviteError("");
-    },
-    onError: (err) => {
-      setInviteError(err?.message ?? "Failed to invite member.");
-    },
-  });
-
-  const removeMemberMutation = useMutation({
-    mutationFn: (memberId) => api.entities.Team.removeMember(memberId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["teamMembers", teamId] });
-    },
-  });
-
-  const removeBillMutation = useMutation({
-    mutationFn: (billNumber) =>
-      api.entities.Team.removeBill(teamId, billNumber),
-    onMutate: async (billNumber) => {
-      await queryClient.cancelQueries({ queryKey: ["teamBills", teamId] });
-      const prev = queryClient.getQueryData(["teamBills", teamId]);
-      queryClient.setQueryData(["teamBills", teamId], (old) =>
-        (old ?? []).filter((n) => n !== billNumber),
+  // ── Join by code ───────────────────────────────────────────────────────────
+  const [joinSuccess, setJoinSuccess] = useState("");
+  const handleJoinByCode = async () => {
+    if (!joinCode.trim()) {
+      setJoinError("Please enter a team code.");
+      return;
+    }
+    setJoiningTeam(true);
+    setJoinError("");
+    setJoinSuccess("");
+    try {
+      await api.entities.Team.joinByCode(joinCode);
+      await queryClient.refetchQueries({ queryKey: ["allTeams"] });
+      setJoinCode("");
+      setJoinSuccess(
+        "Join request sent! The team owner will review your request.",
       );
-      return { prev };
-    },
-    onError: (_e, _b, ctx) => {
-      queryClient.setQueryData(["teamBills", teamId], ctx.prev);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["teamBills", teamId] });
-    },
-  });
+    } catch (err) {
+      setJoinError(err?.message ?? "Invalid code or unable to join.");
+    } finally {
+      setJoiningTeam(false);
+    }
+  };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-
-  if (loadingTeam) {
+  // ── Loading ────────────────────────────────────────────────────────────────
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
@@ -175,273 +194,264 @@ export default function Team() {
     );
   }
 
-  // ── Pending invite screen ──────────────────────────────────────────────────
-  if (hasPendingInvite) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="max-w-md w-full space-y-4">
-          <div className="text-center space-y-2">
-            <div className="inline-flex p-4 bg-blue-100 rounded-full mb-2">
-              <UserCheck className="w-8 h-8 text-blue-600" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900">
-              Team Invitation
-            </h1>
-            <p className="text-slate-600">
-              You've been invited to join a team.
+  const hasTeams = teams.length > 0;
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  return (
+    <div ref={pageRef} className="min-h-full bg-slate-50">
+      <div className="max-w-7xl mx-auto p-6 space-y-6">
+        {/* Page header */}
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-blue-100 rounded-lg">
+            <Users className="w-6 h-6 text-blue-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-3xl font-bold text-slate-900">Teams</h1>
+            <p className="text-slate-600 mt-1">
+              {hasTeams
+                ? `You are in ${teams.length} team${teams.length !== 1 ? "s" : ""}`
+                : "Create a new team or join an existing one"}
             </p>
           </div>
-
-          {pendingInvites.map((invite) => (
-            <Card key={invite.id} className="border-blue-200">
-              <CardContent className="p-5 space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-blue-100 rounded-lg">
-                    <Users className="w-5 h-5 text-blue-600" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-slate-900">
-                      {invite.teams?.name ?? "A team"}
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      You were invited as a member
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-3">
-                  <Button
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 gap-2"
-                    onClick={handleAcceptInvite}
-                    disabled={isAccepting}
-                  >
-                    {isAccepting ? (
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <CheckCircle className="w-4 h-4" />
-                    )}
-                    Accept & Join
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="flex-1 gap-2 text-red-600 border-red-200 hover:bg-red-50"
-                    onClick={() => handleDeclineInvite(invite)}
-                    disabled={isAccepting}
-                  >
-                    <XCircle className="w-4 h-4" />
-                    Decline
-                  </Button>
-                </div>
-                {acceptError && (
-                  <p className="text-sm text-red-600 mt-2">{acceptError}</p>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-
-          {pendingInvites.length === 0 && (
-            <Card>
-              <CardContent className="p-5 text-center text-slate-500 text-sm">
-                Loading invitation details...
-              </CardContent>
-            </Card>
+          {hasTeams && (
+            <Button
+              size="sm"
+              variant={showCreateJoin ? "secondary" : "default"}
+              className="gap-2"
+              onClick={() => setShowCreateJoin((v) => !v)}
+            >
+              <Plus className="w-4 h-4" />
+              {showCreateJoin ? "Cancel" : "Create / Join Team"}
+            </Button>
           )}
         </div>
-      </div>
-    );
-  }
 
-  return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-7xl mx-auto p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center gap-4">
-          <div className="p-3 bg-green-100 rounded-lg">
-            <Users className="w-6 h-6 text-green-600" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">{team?.name}</h1>
-            <p className="text-slate-600 mt-1">Shared bills and team members</p>
-          </div>
-        </div>
-
-        {/* Members */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="w-5 h-5" />
-              Team Members
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              {members.map((member) => (
-                <div
-                  key={member.id}
-                  className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                      <span className="text-blue-600 text-sm font-semibold">
-                        {member.email?.[0]?.toUpperCase()}
-                      </span>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-slate-900">
-                        {member.email}
-                      </p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <Badge variant="outline" className="text-xs capitalize">
-                          {member.role}
-                        </Badge>
-                        {member.status === "pending" && (
-                          <Badge
-                            variant="outline"
-                            className="text-xs text-orange-600 border-orange-200"
-                          >
-                            Pending invite
-                          </Badge>
-                        )}
+        {/* Pending invites banner */}
+        {pendingInvites.length > 0 && (
+          <div className="space-y-3">
+            {pendingInvites.map((invite) => (
+              <Card key={invite.id} className="border-blue-200 bg-blue-50/50">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-blue-100 rounded-lg shrink-0">
+                        <UserCheck className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">
+                          Invitation to join{" "}
+                          <span className="text-blue-700">
+                            {invite.teams?.name ?? "a team"}
+                          </span>
+                        </p>
                       </div>
                     </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        className="bg-blue-600 hover:bg-blue-700 gap-1"
+                        onClick={handleAcceptInvite}
+                        disabled={isAccepting}
+                      >
+                        {isAccepting ? (
+                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <CheckCircle className="w-3 h-3" />
+                        )}
+                        Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1 text-red-600 border-red-200 hover:bg-red-50"
+                        onClick={() => handleDeclineInvite(invite)}
+                        disabled={isAccepting}
+                      >
+                        <XCircle className="w-3 h-3" />
+                        Decline
+                      </Button>
+                    </div>
                   </div>
-                  {isOwner && member.user_id !== authUser?.id && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                      onClick={() => removeMemberMutation.mutate(member.id)}
-                      disabled={removeMemberMutation.isPending}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                  {acceptError && (
+                    <p className="text-sm text-red-600 mt-2">{acceptError}</p>
                   )}
-                </div>
-              ))}
-              {members.length === 0 && (
-                <p className="text-sm text-slate-500 italic">
-                  No members yet. Invite someone below.
-                </p>
-              )}
-            </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
-            {/* Leave team (members only) */}
-            {!isOwner && (
-              <div className="pt-3 border-t border-slate-200">
-                <Button
-                  variant="outline"
-                  className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
-                  onClick={handleLeaveTeam}
-                >
-                  <LogOut className="w-4 h-4" />
-                  Leave Team
-                </Button>
-              </div>
-            )}
-
-            {/* Invite form (owner only) */}
-            {isOwner && (
-              <div className="pt-3 border-t border-slate-200 space-y-2">
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <Input
-                      type="email"
-                      placeholder="Invite by email address..."
-                      value={inviteEmail}
-                      onChange={(e) => {
-                        setInviteEmail(e.target.value);
-                        setInviteError("");
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && inviteEmail.trim()) {
-                          inviteMutation.mutate(inviteEmail.trim());
+        {/* Pending join requests (owner view) */}
+        {pendingJoinRequests.length > 0 && (
+          <div className="space-y-3">
+            {pendingJoinRequests.map((req) => (
+              <Card key={req.id} className="border-amber-200 bg-amber-50/50">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-amber-100 rounded-lg shrink-0">
+                        <UserPlus className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">
+                          <span className="text-amber-700">{req.email}</span>{" "}
+                          wants to join{" "}
+                          <span className="text-amber-700">{req.teamName}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700 gap-1"
+                        onClick={() => approveJoinMutation.mutate(req.id)}
+                        disabled={
+                          approveJoinMutation.isPending ||
+                          declineJoinMutation.isPending
                         }
-                      }}
-                      className="pl-10"
-                    />
+                      >
+                        <CheckCircle className="w-3 h-3" />
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1 text-red-600 border-red-200 hover:bg-red-50"
+                        onClick={() => declineJoinMutation.mutate(req.id)}
+                        disabled={
+                          approveJoinMutation.isPending ||
+                          declineJoinMutation.isPending
+                        }
+                      >
+                        <XCircle className="w-3 h-3" />
+                        Decline
+                      </Button>
+                    </div>
                   </div>
-                  <Button
-                    onClick={() => inviteMutation.mutate(inviteEmail.trim())}
-                    disabled={!inviteEmail.trim() || inviteMutation.isPending}
-                    className="bg-blue-600 hover:bg-blue-700 gap-2"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    Invite
-                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {/* Create / Join forms — shown when no teams, or when user clicks button */}
+        {(!hasTeams || showCreateJoin) && (
+          <div className={hasTeams ? "" : "flex items-center justify-center"}>
+            <div className={`space-y-5 ${hasTeams ? "" : "max-w-lg w-full"}`}>
+              {!hasTeams && (
+                <div className="text-center space-y-2">
+                  <div className="inline-flex p-4 bg-slate-100 rounded-full mb-2">
+                    <Users className="w-8 h-8 text-slate-500" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-slate-900">
+                    No Team Yet
+                  </h2>
+                  <p className="text-slate-500 text-sm">
+                    Create a new team or join an existing one with a team code.
+                  </p>
                 </div>
-                {inviteError && (
-                  <p className="text-sm text-red-600">{inviteError}</p>
-                )}
-                <p className="text-xs text-slate-500">
-                  The invited person will automatically join when they log in
-                  with that email.
-                </p>
+              )}
+
+              <div
+                className={`grid ${hasTeams ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1"} gap-4`}
+              >
+                {/* Create team */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <UserPlus className="w-4 h-4 text-blue-600" />
+                      Create a New Team
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Input
+                      placeholder="Team name"
+                      value={newTeamName}
+                      onChange={(e) => {
+                        setNewTeamName(e.target.value);
+                        setCreateTeamError("");
+                      }}
+                      onKeyDown={(e) => e.key === "Enter" && handleCreateTeam()}
+                    />
+                    <Button
+                      className="w-full bg-blue-600 hover:bg-blue-700 gap-2"
+                      onClick={handleCreateTeam}
+                      disabled={creatingTeam}
+                    >
+                      {creatingTeam ? (
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <UserPlus className="w-4 h-4" />
+                      )}
+                      Create Team
+                    </Button>
+                    {createTeamError && (
+                      <p className="text-sm text-red-600">{createTeamError}</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Join by code */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Hash className="w-4 h-4 text-green-600" />
+                      Join with a Team Code
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Input
+                      placeholder="5-character code (e.g. A3K7P)"
+                      value={joinCode}
+                      maxLength={5}
+                      className="uppercase tracking-widest font-mono"
+                      onChange={(e) => {
+                        setJoinCode(e.target.value.toUpperCase());
+                        setJoinError("");
+                        setJoinSuccess("");
+                      }}
+                      onKeyDown={(e) => e.key === "Enter" && handleJoinByCode()}
+                    />
+                    <Button
+                      className="w-full bg-green-600 hover:bg-green-700 gap-2"
+                      onClick={handleJoinByCode}
+                      disabled={joiningTeam}
+                    >
+                      {joiningTeam ? (
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <CheckCircle className="w-4 h-4" />
+                      )}
+                      Join Team
+                    </Button>
+                    {joinError && (
+                      <p className="text-sm text-red-600">{joinError}</p>
+                    )}
+                    {joinSuccess && (
+                      <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                        <p className="text-sm text-green-700">{joinSuccess}</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Team Bills */}
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-            <Star className="w-5 h-5 text-yellow-500" />
-            Team Bills ({teamBills.length})
-          </h2>
-
-          {teamBills.length > 0 ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-              {teamBills.map((bill) => (
-                <BillCard
-                  key={bill.id}
-                  bill={bill}
-                  onViewDetails={setSelectedBill}
-                  onToggleTracking={() => {}}
-                  isTracked={trackedBillIds.includes(bill.bill_number)}
-                  isInTeam={true}
-                  onAddToTeam={() =>
-                    removeBillMutation.mutate(bill.bill_number)
-                  }
-                  teamButtonLabel="Remove from Team"
-                />
-              ))}
             </div>
-          ) : (
-            <div className="text-center py-12 bg-white rounded-xl border border-slate-200">
-              <Star className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">
-                No team bills yet
-              </h3>
-              <p className="text-slate-600">
-                Use the "Add to Team" button on any bill in the Dashboard to
-                share it with your team.
-              </p>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* Team Chat */}
-        <TeamChat teamId={teamId} />
+        {/* Team sections */}
+        {teams.map((team) => (
+          <TeamSection
+            key={team.id}
+            team={team}
+            onLeave={() =>
+              queryClient.refetchQueries({ queryKey: ["allTeams"] })
+            }
+            defaultOpen={teams.length === 1}
+          />
+        ))}
       </div>
-
-      <BillDetailsModal
-        bill={selectedBill}
-        isOpen={!!selectedBill}
-        onClose={() => setSelectedBill(null)}
-        isTracked={
-          selectedBill
-            ? trackedBillIds.includes(selectedBill.bill_number)
-            : false
-        }
-        onToggleTracking={() => {}}
-        isInTeam={
-          selectedBill
-            ? teamBillNumbers.includes(selectedBill.bill_number)
-            : false
-        }
-        onAddToTeam={() => {
-          if (selectedBill) removeBillMutation.mutate(selectedBill.bill_number);
-        }}
-      />
     </div>
   );
 }

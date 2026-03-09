@@ -8,6 +8,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   User,
   Calendar,
@@ -19,6 +33,13 @@ import {
   Sparkles,
   BookOpen,
   Users,
+  Shield,
+  AlertTriangle,
+  StickyNote,
+  UserCheck,
+  Check,
+  ArrowRight,
+  RefreshCw,
 } from "lucide-react";
 import { format } from "date-fns";
 import { api } from "@/api/apiClient";
@@ -126,6 +147,15 @@ export default function BillDetailsModal({
   onBillUpdate,
   isInTeam,
   onAddToTeam,
+  teamMeta,
+  onTeamMetaChange,
+  teamMembers,
+  personalMeta,
+  onPersonalMetaChange,
+  teams,
+  teamBillMap,
+  onToggleTeamBill,
+  lcTracking,
 }) {
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [generatedSummary, setGeneratedSummary] = useState(null);
@@ -259,6 +289,8 @@ export default function BillDetailsModal({
   const safeBillChanges = formatAiText(bill.changes_analysis);
 
   const generateAISummary = async () => {
+    // Guard against double-clicks or concurrent invocations.
+    if (isGeneratingSummary) return;
     setIsGeneratingSummary(true);
     setAiError("");
     try {
@@ -283,7 +315,9 @@ export default function BillDetailsModal({
         );
       }
 
+      // Trim context and release the full string reference to free memory.
       const aiContext = billTextContext.slice(0, 30000);
+      billTextContext = null;
 
       const prompt = `You are analyzing Georgia legislative bill ${bill.bill_number} titled "${bill.title}".
 
@@ -327,7 +361,7 @@ export default function BillDetailsModal({
       );
       console.log(
         "Bill text context truncated to 30000",
-        billTextContext.length > 30000,
+        aiContext.length >= 30000,
       );
       console.log("Prompt length", prompt.length);
       console.log("Prompt preview (start)", prompt.slice(0, 2000));
@@ -442,7 +476,73 @@ export default function BillDetailsModal({
                   <StarOff className="w-5 h-5 text-slate-400" />
                 )}
               </Button>
-              {onAddToTeam && (
+              {/* Multi-team dropdown */}
+              {teams && teams.length > 0 && onToggleTeamBill && bill && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant={
+                        teams.some((t) =>
+                          (teamBillMap?.[t.id] ?? []).includes(
+                            bill.bill_number,
+                          ),
+                        )
+                          ? "default"
+                          : "outline"
+                      }
+                      size="sm"
+                      className={
+                        teams.some((t) =>
+                          (teamBillMap?.[t.id] ?? []).includes(
+                            bill.bill_number,
+                          ),
+                        )
+                          ? "bg-green-600 hover:bg-green-700 text-white gap-2"
+                          : "border-green-200 text-green-600 hover:bg-green-50 gap-2"
+                      }
+                    >
+                      <Users className="w-4 h-4" />
+                      {teams.some((t) =>
+                        (teamBillMap?.[t.id] ?? []).includes(bill.bill_number),
+                      )
+                        ? `In ${teams.filter((t) => (teamBillMap?.[t.id] ?? []).includes(bill.bill_number)).length} Team${teams.filter((t) => (teamBillMap?.[t.id] ?? []).includes(bill.bill_number)).length !== 1 ? "s" : ""}`
+                        : "Add to Team"}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-[180px]">
+                    {teams.map((t) => {
+                      const inThisTeam = (teamBillMap?.[t.id] ?? []).includes(
+                        bill.bill_number,
+                      );
+                      return (
+                        <DropdownMenuItem
+                          key={t.id}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            onToggleTeamBill(t.id, bill.bill_number);
+                          }}
+                          className="flex items-center gap-2 cursor-pointer"
+                        >
+                          <span
+                            className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                              inThisTeam
+                                ? "bg-green-600 border-green-600"
+                                : "border-slate-300"
+                            }`}
+                          >
+                            {inThisTeam && (
+                              <Check className="w-3 h-3 text-white" />
+                            )}
+                          </span>
+                          <span className="text-sm truncate">{t.name}</span>
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              {/* Legacy single-team button */}
+              {onAddToTeam && !teams?.length && (
                 <Button
                   variant={isInTeam ? "default" : "outline"}
                   size="sm"
@@ -490,10 +590,28 @@ export default function BillDetailsModal({
                 <h3 className="font-semibold text-slate-900 mb-2">
                   {bill.title}
                 </h3>
-                {bill.lc_number && (
-                  <p className="text-sm text-slate-500 font-mono">
-                    LC Number: {bill.lc_number}
-                  </p>
+                {(bill.lc_number || lcTracking?.current_lc) && (
+                  <div className="space-y-1">
+                    <p className="text-sm text-slate-500 font-mono">
+                      LC Number: {bill.lc_number || lcTracking?.current_lc}
+                    </p>
+                    {lcTracking?.previous_lc &&
+                      lcTracking.previous_lc !== lcTracking.current_lc && (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-amber-50 border border-amber-200 text-sm">
+                          <RefreshCw className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span className="text-amber-800 font-medium">
+                            LC Changed:
+                          </span>
+                          <span className="font-mono text-amber-700">
+                            {lcTracking.previous_lc}
+                          </span>
+                          <ArrowRight className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          <span className="font-mono text-amber-900 font-semibold">
+                            {lcTracking.current_lc}
+                          </span>
+                        </div>
+                      )}
+                  </div>
                 )}
               </div>
 
@@ -565,6 +683,161 @@ export default function BillDetailsModal({
                 </CardContent>
               </Card>
             )}
+
+          {/* Team Notes — only when opened from team context */}
+          {teamMeta && onTeamMetaChange && (
+            <Card className="border-indigo-200 bg-indigo-50/30">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <StickyNote className="w-5 h-5 text-indigo-500" />
+                  Team Notes
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Flag */}
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-medium text-slate-700 w-32 shrink-0">
+                    Risk Flag
+                  </label>
+                  <Select
+                    value={teamMeta.flag || "_none"}
+                    onValueChange={(val) =>
+                      onTeamMetaChange({ flag: val === "_none" ? null : val })
+                    }
+                  >
+                    <SelectTrigger className="h-9 w-[160px]">
+                      <SelectValue placeholder="None" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">
+                        <span className="text-slate-400">None</span>
+                      </SelectItem>
+                      <SelectItem value="low">
+                        <span className="flex items-center gap-1 text-green-700">
+                          <Shield className="w-3 h-3" /> Low Risk
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="high">
+                        <span className="flex items-center gap-1 text-red-700">
+                          <AlertTriangle className="w-3 h-3" /> High Risk
+                        </span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Policy Assistant */}
+                {teamMembers && teamMembers.length > 0 && (
+                  <div className="flex items-center gap-3">
+                    <label className="text-sm font-medium text-slate-700 w-32 shrink-0">
+                      Policy Assistant
+                    </label>
+                    <Select
+                      value={teamMeta.policy_assistant || "_none"}
+                      onValueChange={(val) =>
+                        onTeamMetaChange({
+                          policy_assistant: val === "_none" ? null : val,
+                        })
+                      }
+                    >
+                      <SelectTrigger className="h-9 w-[220px]">
+                        <SelectValue placeholder="Unassigned" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">
+                          <span className="text-slate-400">Unassigned</span>
+                        </SelectItem>
+                        {teamMembers.map((m) => (
+                          <SelectItem key={m.user_id} value={m.user_id}>
+                            {m.email}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Bill Summary Notes */}
+                <div>
+                  <label className="text-sm font-medium text-slate-700 block mb-1">
+                    Bill Summary Notes
+                  </label>
+                  <Textarea
+                    placeholder="Add team notes about this bill..."
+                    className="min-h-[100px] resize-y"
+                    defaultValue={teamMeta.bill_summary_notes || ""}
+                    onBlur={(e) =>
+                      onTeamMetaChange({ bill_summary_notes: e.target.value })
+                    }
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Personal Notes — only when opened from tracked bills context */}
+          {personalMeta && onPersonalMetaChange && (
+            <Card className="border-blue-200 bg-blue-50/30">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <StickyNote className="w-5 h-5 text-blue-500" />
+                  My Notes
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Flag */}
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-medium text-slate-700 w-32 shrink-0">
+                    Risk Flag
+                  </label>
+                  <Select
+                    value={personalMeta.flag || "_none"}
+                    onValueChange={(val) =>
+                      onPersonalMetaChange({
+                        flag: val === "_none" ? null : val,
+                      })
+                    }
+                  >
+                    <SelectTrigger className="h-9 w-[160px]">
+                      <SelectValue placeholder="None" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">
+                        <span className="text-slate-400">None</span>
+                      </SelectItem>
+                      <SelectItem value="low">
+                        <span className="flex items-center gap-1 text-green-700">
+                          <Shield className="w-3 h-3" /> Low Risk
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="high">
+                        <span className="flex items-center gap-1 text-red-700">
+                          <AlertTriangle className="w-3 h-3" /> High Risk
+                        </span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Bill Summary Notes */}
+                <div>
+                  <label className="text-sm font-medium text-slate-700 block mb-1">
+                    Bill Summary Notes
+                  </label>
+                  <Textarea
+                    placeholder="Add your personal notes about this bill..."
+                    className="min-h-[100px] resize-y"
+                    defaultValue={personalMeta.bill_summary_notes || ""}
+                    onBlur={(e) =>
+                      onPersonalMetaChange({
+                        bill_summary_notes: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* AI Summary Section */}
           <Card>
@@ -662,7 +935,7 @@ export default function BillDetailsModal({
                       <div>
                         <p className="font-semibold">{sub.substitute_number}</p>
                         <p className="text-sm text-slate-500">
-                          LC: {sub.lc_number}
+                          {sub.lc_number}
                         </p>
                         {sub.date_introduced && (
                           <p className="text-sm text-slate-500">

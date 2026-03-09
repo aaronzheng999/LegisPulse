@@ -3,6 +3,12 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   FileText,
   Calendar,
   User,
@@ -12,6 +18,12 @@ import {
   Plus,
   Check,
   Users,
+  Shield,
+  AlertTriangle,
+  UserCheck,
+  StickyNote,
+  ArrowRight,
+  RefreshCw,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -91,6 +103,11 @@ export default function BillCard({
   isInTeam,
   onAddToTeam,
   teamButtonLabel,
+  teamMeta,
+  teams,
+  teamBillMap,
+  onToggleTeamBill,
+  lcTracking,
 }) {
   const ChamberIcon = getChamberIcon(bill.chamber);
   const [showAllSponsors, setShowAllSponsors] = useState(false);
@@ -178,10 +195,28 @@ export default function BillCard({
           <h4 className="font-semibold text-slate-900 mb-2 line-clamp-2">
             {bill.title}
           </h4>
-          {bill.lc_number && (
-            <p className="text-sm text-slate-500 font-mono">
-              LC: {bill.lc_number}
-            </p>
+          {(bill.lc_number || lcTracking?.current_lc) && (
+            <div className="space-y-1">
+              <p className="text-sm text-slate-500 font-mono">
+                {bill.lc_number || lcTracking?.current_lc}
+              </p>
+              {lcTracking?.previous_lc &&
+                lcTracking.previous_lc !== lcTracking.current_lc && (
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-50 border border-amber-200 text-xs">
+                    <RefreshCw className="w-3 h-3 text-amber-600 shrink-0" />
+                    <span className="text-amber-800 font-medium">
+                      LC Changed:
+                    </span>
+                    <span className="font-mono text-amber-700">
+                      {lcTracking.previous_lc}
+                    </span>
+                    <ArrowRight className="w-3 h-3 text-amber-500 shrink-0" />
+                    <span className="font-mono text-amber-900 font-semibold">
+                      {lcTracking.current_lc}
+                    </span>
+                  </div>
+                )}
+            </div>
           )}
         </div>
 
@@ -244,8 +279,101 @@ export default function BillCard({
           </div>
         )}
 
+        {/* Team metadata strip — only shown when teamMeta is provided */}
+        {teamMeta && (
+          <div className="bg-indigo-50/60 border border-indigo-100 rounded-lg p-3 space-y-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Flag badge */}
+              {teamMeta.flag === "high" && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 ring-1 ring-red-200">
+                  <AlertTriangle className="w-3 h-3" /> High Risk
+                </span>
+              )}
+              {teamMeta.flag === "low" && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 ring-1 ring-green-200">
+                  <Shield className="w-3 h-3" /> Low Risk
+                </span>
+              )}
+              {/* Assigned policy assistant */}
+              {teamMeta.assigneeName && (
+                <span className="inline-flex items-center gap-1 text-xs text-indigo-700">
+                  <UserCheck className="w-3 h-3" />
+                  {teamMeta.assigneeName}
+                </span>
+              )}
+            </div>
+            {/* Bill summary notes preview */}
+            {teamMeta.bill_summary_notes && (
+              <p className="text-xs text-slate-600 line-clamp-2 flex items-start gap-1">
+                <StickyNote className="w-3 h-3 mt-0.5 shrink-0 text-indigo-400" />
+                {teamMeta.bill_summary_notes}
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="flex justify-end pt-2 gap-2">
-          {onAddToTeam && (
+          {/* Multi-team dropdown */}
+          {teams && teams.length > 0 && onToggleTeamBill && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant={
+                    teams.some((t) =>
+                      (teamBillMap?.[t.id] ?? []).includes(bill.bill_number),
+                    )
+                      ? "default"
+                      : "outline"
+                  }
+                  size="sm"
+                  className={
+                    teams.some((t) =>
+                      (teamBillMap?.[t.id] ?? []).includes(bill.bill_number),
+                    )
+                      ? "bg-green-600 hover:bg-green-700 text-white gap-1"
+                      : "border-green-200 text-green-600 hover:bg-green-50 gap-1"
+                  }
+                >
+                  <Users className="w-3 h-3" />
+                  {teams.some((t) =>
+                    (teamBillMap?.[t.id] ?? []).includes(bill.bill_number),
+                  )
+                    ? `In ${teams.filter((t) => (teamBillMap?.[t.id] ?? []).includes(bill.bill_number)).length} Team${teams.filter((t) => (teamBillMap?.[t.id] ?? []).includes(bill.bill_number)).length !== 1 ? "s" : ""}`
+                    : "Add to Team"}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[180px]">
+                {teams.map((t) => {
+                  const inThisTeam = (teamBillMap?.[t.id] ?? []).includes(
+                    bill.bill_number,
+                  );
+                  return (
+                    <DropdownMenuItem
+                      key={t.id}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onToggleTeamBill(t.id, bill.bill_number);
+                      }}
+                      className="flex items-center gap-2 cursor-pointer"
+                    >
+                      <span
+                        className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                          inThisTeam
+                            ? "bg-green-600 border-green-600"
+                            : "border-slate-300"
+                        }`}
+                      >
+                        {inThisTeam && <Check className="w-3 h-3 text-white" />}
+                      </span>
+                      <span className="text-sm truncate">{t.name}</span>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {/* Legacy single-team button */}
+          {onAddToTeam && !teams?.length && (
             <Button
               variant={isInTeam ? "default" : "outline"}
               size="sm"
