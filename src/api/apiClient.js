@@ -471,7 +471,7 @@ export const api = {
         const userId = await getUserId();
         const { data, error } = await supabase
           .from("user_bill_metadata")
-          .select("bill_number, flag, bill_summary_notes")
+          .select("bill_number, flag, bill_summary_notes, analysis")
           .eq("user_id", userId);
         if (error) throw error;
         const map = {};
@@ -479,6 +479,7 @@ export const api = {
           map[row.bill_number] = {
             flag: row.flag ?? null,
             bill_summary_notes: row.bill_summary_notes ?? "",
+            analysis: row.analysis ?? {},
           };
         }
         return map;
@@ -1190,10 +1191,35 @@ export const api = {
     async getAll() {
       const userId = await getUserId();
 
-      const { data: histRows, error: histErr } = await supabase
-        .from("bill_lc_history")
-        .select("bill_number, current_lc, previous_lc, lc_changed_at");
-      if (histErr) throw histErr;
+      // `bill_lc_history` is now global (every bill in the session is
+      // tracked by the background job, ~5k+ rows). The UI only needs
+      // LC state for bills THIS user follows (personal + team), so we
+      // scope the read to that set — otherwise this poll would pull
+      // the entire table every minute.
+      const [{ data: profileRow }, teamNumbers] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("tracked_bill_ids")
+          .eq("id", userId)
+          .maybeSingle(),
+        api.entities.Team.getAllTeamBillNumbers().catch(() => []),
+      ]);
+      const relevant = [
+        ...new Set([
+          ...(profileRow?.tracked_bill_ids ?? []),
+          ...(teamNumbers ?? []),
+        ]),
+      ];
+
+      let histRows = [];
+      if (relevant.length > 0) {
+        const { data, error: histErr } = await supabase
+          .from("bill_lc_history")
+          .select("bill_number, current_lc, previous_lc, lc_changed_at")
+          .in("bill_number", relevant);
+        if (histErr) throw histErr;
+        histRows = data ?? [];
+      }
 
       const { data: ackRows, error: ackErr } = await supabase
         .from("bill_lc_tracking")
@@ -1242,6 +1268,54 @@ export const api = {
         };
       }
       return map;
+    },
+
+    /**
+     * Lightweight, session-wide LC lookup for the dashboard.
+     * Returns a plain object keyed by bill_number → current_lc for
+     * EVERY bill in the global history table (the background job keeps
+     * this populated for all ~5k bills). Unlike getAll(), this is not
+     * scoped to the user's tracked bills, so untracked cards can still
+     * display their LC number. Only two columns are selected and the
+     * result is meant to be cached with a long staleTime.
+     */
+    async getGlobalLcMap() {
+      const PAGE_SIZE = 1000;
+      const map = {};
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from("bill_lc_history")
+          .select("bill_number, current_lc")
+          .not("current_lc", "is", null)
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        for (const r of data) map[r.bill_number] = r.current_lc;
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      return map;
+    },
+
+    /**
+     * Resolve the legis.ga.gov internal legislation id for a bill number.
+     * The background scraper stores this on every bill_lc_history row, so
+     * it's the bridge between a LegiScan bill and the legis.ga.gov version
+     * detail endpoint. Returns the numeric id or null.
+     */
+    async getLegislationId(billNumber) {
+      const bn = String(billNumber || "")
+        .replace(/\s+/g, "")
+        .toUpperCase();
+      if (!bn) return null;
+      const { data, error } = await supabase
+        .from("bill_lc_history")
+        .select("legislation_id")
+        .eq("bill_number", bn)
+        .maybeSingle();
+      if (error) throw error;
+      return data?.legislation_id ?? null;
     },
 
     /**
@@ -1374,6 +1448,253 @@ export const api = {
         .from("bill_lc_tracking")
         .upsert(payloads, { onConflict: "user_id,bill_number" });
       if (error) throw error;
+    },
+  },
+
+  // ─── Meeting Intelligence ──────────────────────────────────────────────────
+  // Transcription + AI analysis of public legislative meetings. Transcript and
+  // segment rows are shared (public meetings); favorites and alerts are per-user.
+  meetingIntel: {
+    transcripts: {
+      /** List all transcripts, newest first. */
+      async list(limit = 200) {
+        const { data, error } = await supabase
+          .from("meeting_transcripts")
+          .select("*")
+          .order("start_time", { ascending: false })
+          .limit(limit);
+        if (error) throw error;
+        return data ?? [];
+      },
+
+      async getByMeetingId(meetingId) {
+        if (!meetingId) return null;
+        const { data, error } = await supabase
+          .from("meeting_transcripts")
+          .select("*")
+          .eq("meeting_id", meetingId)
+          .maybeSingle();
+        if (error) throw error;
+        return data ?? null;
+      },
+
+      async get(id) {
+        const { data, error } = await supabase
+          .from("meeting_transcripts")
+          .select("*")
+          .eq("id", id)
+          .maybeSingle();
+        if (error) throw error;
+        return data ?? null;
+      },
+
+      /**
+       * Create (or fetch existing) the transcript row for a meeting.
+       * `meeting` is a normalized legis-ga meeting object.
+       */
+      async ensureForMeeting(meeting, fields = {}) {
+        const userId = await getUserId();
+        const existing = await this.getByMeetingId(meeting.id);
+        if (existing) {
+          // Apply any new fields (e.g. freshly-parsed agenda bills).
+          if (Object.keys(fields).length > 0) {
+            return this.update(existing.id, fields);
+          }
+          return existing;
+        }
+        const payload = {
+          meeting_id: meeting.id,
+          title: meeting.title ?? "Legislative Meeting",
+          chamber: meeting.chamber ?? null,
+          committee: meeting.committee ?? meeting.title ?? null,
+          start_time: meeting.start_time ?? null,
+          status: fields.status ?? "scheduled",
+          video_url: meeting.videoUrl ?? null,
+          agenda_url: meeting.agendaUrl ?? null,
+          created_by: userId,
+          ...fields,
+        };
+        const { data, error } = await supabase
+          .from("meeting_transcripts")
+          .insert(payload)
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      },
+
+      async update(id, patch) {
+        const { data, error } = await supabase
+          .from("meeting_transcripts")
+          .update(patch)
+          .eq("id", id)
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      },
+
+      /**
+       * Request unattended live monitoring of a meeting from a YouTube live URL.
+       * Sets youtube_url + status='requested'; the worker polls and claims it.
+       */
+      async requestMonitor(meeting, youtubeUrl) {
+        const t = await this.ensureForMeeting(meeting);
+        return this.update(t.id, {
+          youtube_url: youtubeUrl,
+          status: "requested",
+        });
+      },
+    },
+
+    segments: {
+      async list(transcriptId) {
+        if (!transcriptId) return [];
+        const { data, error } = await supabase
+          .from("meeting_transcript_segments")
+          .select("*")
+          .eq("transcript_id", transcriptId)
+          .order("seq", { ascending: true });
+        if (error) throw error;
+        return data ?? [];
+      },
+
+      async add(transcriptId, segment) {
+        const { data, error } = await supabase
+          .from("meeting_transcript_segments")
+          .insert({ transcript_id: transcriptId, ...segment })
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      },
+
+      /** Subscribe to realtime inserts for a transcript's segments. */
+      subscribe(transcriptId, onInsert) {
+        return supabase
+          .channel(`segments_${transcriptId}`)
+          .on(
+            "postgres_changes",
+            {
+              event: "INSERT",
+              schema: "public",
+              table: "meeting_transcript_segments",
+              filter: `transcript_id=eq.${transcriptId}`,
+            },
+            (payload) => onInsert(payload.new),
+          )
+          .subscribe();
+      },
+    },
+
+    favorites: {
+      /** Returns a Set of favorited transcript ids for the current user. */
+      async getIds() {
+        const userId = await getUserId();
+        const { data, error } = await supabase
+          .from("meeting_favorites")
+          .select("transcript_id")
+          .eq("user_id", userId);
+        if (error) throw error;
+        return new Set((data ?? []).map((r) => r.transcript_id));
+      },
+
+      async toggle(transcriptId) {
+        const userId = await getUserId();
+        const { data: existing } = await supabase
+          .from("meeting_favorites")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("transcript_id", transcriptId)
+          .maybeSingle();
+        if (existing) {
+          await supabase.from("meeting_favorites").delete().eq("id", existing.id);
+          return false;
+        }
+        await supabase
+          .from("meeting_favorites")
+          .insert({ user_id: userId, transcript_id: transcriptId });
+        return true;
+      },
+    },
+
+    alerts: {
+      async list(limit = 100) {
+        const userId = await getUserId();
+        const { data, error } = await supabase
+          .from("meeting_alerts")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false })
+          .limit(limit);
+        if (error) throw error;
+        return data ?? [];
+      },
+
+      /**
+       * Create alerts for the current user, de-duplicated against existing
+       * alerts of the same (transcript_id, bill_number, alert_type).
+       */
+      async createMany(rows) {
+        if (!rows?.length) return [];
+        const userId = await getUserId();
+        const payloads = rows.map((r) => ({
+          user_id: userId,
+          transcript_id: r.transcript_id ?? null,
+          bill_number: r.bill_number,
+          alert_type: r.alert_type ?? "mentioned",
+          message: r.message ?? "",
+        }));
+        // Avoid duplicate spam: drop rows that already exist for this user.
+        const { data: existing } = await supabase
+          .from("meeting_alerts")
+          .select("transcript_id, bill_number, alert_type")
+          .eq("user_id", userId)
+          .in(
+            "bill_number",
+            [...new Set(payloads.map((p) => p.bill_number))],
+          );
+        const existingKeys = new Set(
+          (existing ?? []).map(
+            (e) => `${e.transcript_id}|${e.bill_number}|${e.alert_type}`,
+          ),
+        );
+        const fresh = payloads.filter(
+          (p) =>
+            !existingKeys.has(
+              `${p.transcript_id}|${p.bill_number}|${p.alert_type}`,
+            ),
+        );
+        if (!fresh.length) return [];
+        const { data, error } = await supabase
+          .from("meeting_alerts")
+          .insert(fresh)
+          .select();
+        if (error) throw error;
+        return data ?? [];
+      },
+
+      async markSeen(ids) {
+        if (!ids?.length) return;
+        const userId = await getUserId();
+        const { error } = await supabase
+          .from("meeting_alerts")
+          .update({ seen: true })
+          .eq("user_id", userId)
+          .in("id", ids);
+        if (error) throw error;
+      },
+
+      async getUnseenCount() {
+        const userId = await getUserId();
+        const { count, error } = await supabase
+          .from("meeting_alerts")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", userId)
+          .eq("seen", false);
+        if (error) throw error;
+        return count ?? 0;
+      },
     },
   },
 
