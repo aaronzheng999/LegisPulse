@@ -1,0 +1,29 @@
+{
+  "name": "EmailList",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Name of the email list/group"
+    },
+    "description": {
+      "type": "string",
+      "description": "Description of the group purpose"
+    },
+    "email_addresses": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of email addresses in this group"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "name",
+    "email_addresses"
+  ]
+}

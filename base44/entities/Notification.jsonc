@@ -1,0 +1,62 @@
+{
+  "name": "Notification",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string",
+      "description": "ID of the user who should receive this notification"
+    },
+    "notification_type": {
+      "type": "string",
+      "enum": [
+        "bill_mention",
+        "bill_status_change",
+        "new_bill",
+        "tweet_alert"
+      ],
+      "description": "Type of notification"
+    },
+    "title": {
+      "type": "string",
+      "description": "Notification title"
+    },
+    "message": {
+      "type": "string",
+      "description": "Notification message body"
+    },
+    "related_bill_id": {
+      "type": "string",
+      "description": "ID of the related bill if applicable"
+    },
+    "related_tweet_id": {
+      "type": "string",
+      "description": "ID of the related tweet if applicable"
+    },
+    "is_read": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the user has read this notification"
+    },
+    "sent_to_phone": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this was sent as a phone notification"
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "urgent"
+      ],
+      "default": "medium"
+    }
+  },
+  "required": [
+    "user_id",
+    "notification_type",
+    "title",
+    "message"
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "name": "Tweet",
+  "type": "object",
+  "properties": {
+    "tweet_id": {
+      "type": "string",
+      "description": "Twitter/X tweet ID"
+    },
+    "account_handle": {
+      "type": "string",
+      "enum": [
+        "@GeorgiaHouseofReps",
+        "@Georgia_Senate"
+      ],
+      "description": "Official account that posted the tweet"
+    },
+    "account_name": {
+      "type": "string",
+      "description": "Display name of the account"
+    },
+    "content": {
+      "type": "string",
+      "description": "Tweet text content"
+    },
+    "posted_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the tweet was posted"
+    },
+    "related_bills": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Bill numbers mentioned in the tweet (e.g., HB 1, SB 23)"
+    },
+    "tweet_url": {
+      "type": "string",
+      "description": "Direct link to the tweet"
+    },
+    "media_urls": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "URLs to any images or videos in the tweet"
+    },
+    "engagement": {
+      "type": "object",
+      "properties": {
+        "likes": {
+          "type": "integer"
+        },
+        "retweets": {
+          "type": "integer"
+        },
+        "replies": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "required": [
+    "tweet_id",
+    "account_handle",
+    "content",
+    "posted_at"
+  ]
+}

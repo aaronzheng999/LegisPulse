@@ -1,0 +1,139 @@
+{
+  "name": "Bill",
+  "type": "object",
+  "properties": {
+    "bill_number": {
+      "type": "string",
+      "description": "Bill number (e.g., HB 1, SB 23, HR 45)"
+    },
+    "title": {
+      "type": "string",
+      "description": "Official title of the bill"
+    },
+    "chamber": {
+      "type": "string",
+      "enum": [
+        "house",
+        "senate"
+      ],
+      "description": "Originating chamber"
+    },
+    "bill_type": {
+      "type": "string",
+      "enum": [
+        "bill",
+        "resolution",
+        "constitutional_amendment"
+      ],
+      "description": "Type of legislation"
+    },
+    "lc_number": {
+      "type": "string",
+      "description": "Legislative Counsel number"
+    },
+    "sponsor": {
+      "type": "string",
+      "description": "Primary sponsor of the bill"
+    },
+    "co_sponsors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of co-sponsors"
+    },
+    "session_year": {
+      "type": "integer",
+      "description": "Legislative session year"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "introduced",
+        "in_committee",
+        "passed_first_reading",
+        "passed_second_reading",
+        "passed_third_reading",
+        "sent_to_other_chamber",
+        "passed_both_chambers",
+        "sent_to_governor",
+        "signed",
+        "vetoed",
+        "dead"
+      ],
+      "default": "introduced"
+    },
+    "current_committee": {
+      "type": "string",
+      "description": "Current committee assignment"
+    },
+    "ocga_sections_affected": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "OCGA sections this bill would modify"
+    },
+    "summary": {
+      "type": "string",
+      "description": "AI-generated plain language summary"
+    },
+    "changes_analysis": {
+      "type": "string",
+      "description": "AI analysis of what changes in the law"
+    },
+    "pdf_url": {
+      "type": "string",
+      "description": "URL to the bill PDF"
+    },
+    "substitute_bills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "substitute_number": {
+            "type": "string"
+          },
+          "lc_number": {
+            "type": "string"
+          },
+          "pdf_url": {
+            "type": "string"
+          },
+          "date_introduced": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "description": "Substitute versions of the bill"
+    },
+    "last_action": {
+      "type": "string",
+      "description": "Description of the most recent action"
+    },
+    "last_action_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "is_tracked": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this bill is being actively tracked"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Custom tags for categorization"
+    }
+  },
+  "required": [
+    "bill_number",
+    "title",
+    "chamber",
+    "bill_type",
+    "session_year"
+  ]
+}

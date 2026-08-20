@@ -1,0 +1,69 @@
+{
+  "type": "object",
+  "properties": {
+    "organization": {
+      "type": "string",
+      "description": "Organization/firm name"
+    },
+    "job_title": {
+      "type": "string",
+      "description": "Professional title"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Phone number for notifications"
+    },
+    "notification_preferences": {
+      "type": "object",
+      "properties": {
+        "email_updates": {
+          "type": "boolean",
+          "default": true
+        },
+        "bill_status_changes": {
+          "type": "boolean",
+          "default": true
+        },
+        "new_bills": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "tracked_bill_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "IDs of bills being tracked by this user"
+    },
+    "twitter_notifications_enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable notifications for Twitter mentions of tracked bills"
+    },
+    "phone_notifications_enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable phone push notifications"
+    },
+    "notification_phone": {
+      "type": "string",
+      "description": "Phone number for SMS/push notifications"
+    },
+    "email_notifications_enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable email notifications"
+    }
+  },
+  "name": "User",
+  "required": [
+    "organization",
+    "job_title",
+    "phone",
+    "notification_preferences",
+    "tracked_bill_ids",
+    "notification_phone"
+  ]
+}
